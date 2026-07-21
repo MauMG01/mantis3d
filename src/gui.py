@@ -8,6 +8,24 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from .i18n import (
+    Idioma,
+    etiqueta_modelo,
+    modo_interno,
+    modo_mostrar,
+    modos_visibles,
+    t,
+)
+from .licensing import (
+    DEMO_MAX_CONVERSIONES,
+    LicenciaError,
+    Plan,
+    estado_suscripcion_actual,
+    registrar_conversion_exitosa,
+    resoluciones_para_plan,
+    validar_conversion,
+)
+from .preferencias import cargar_idioma, guardar_idioma
 from .procesador import (
     ConversionCancelada,
     ModoEstereo,
@@ -17,9 +35,9 @@ from .procesador import (
 )
 from .profundidad import (
     INTENSIDAD_PROFUNDIDAD_DEFECTO,
-    ETIQUETAS_MODELO_PROFUNDIDAD,
+    MODELO_PROFUNDIDAD_DEFECTO,
+    OFFSET_PROFUNDIDAD_DEFECTO,
     ModeloProfundidad,
-    etiqueta_modelo_profundidad,
     modelo_profundidad_desde_etiqueta,
 )
 
@@ -28,36 +46,48 @@ class ConversorGUI(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("MANTIS 3D")
-        self.geometry("500x520")
+        self.geometry("520x600")
+        self.minsize(520, 600)
         self.resizable(False, False)
+
+        self._idioma = cargar_idioma()
+        self._modo_interno = ModoEstereo.PROFUNDIDAD.value
+        self._modelo_interno = MODELO_PROFUNDIDAD_DEFECTO
 
         self.input_path: Path | None = None
         self.output_path: Path | None = None
-        self.offset_value = tk.IntVar(value=0)
-        self.offset_manual = tk.BooleanVar(value=False)
+        self.offset_value = tk.IntVar(value=OFFSET_PROFUNDIDAD_DEFECTO)
+        self.offset_manual = tk.BooleanVar(value=True)
         self.codificar_final = tk.BooleanVar(value=True)
-        self.resolution = tk.StringVar(value=ResolucionSalida.ORIGINAL.value)
-        self.stereo_mode = tk.StringVar(value=ModoEstereo.PROFUNDIDAD.value)
+        self.resolution = tk.StringVar(value=ResolucionSalida.SBS_1080.value)
+        self.stereo_mode = tk.StringVar(
+            value=modo_mostrar(self._modo_interno, self._idioma)
+        )
         self.intensity = tk.DoubleVar(value=INTENSIDAD_PROFUNDIDAD_DEFECTO)
         self.depth_model = tk.StringVar(
-            value=etiqueta_modelo_profundidad(ModeloProfundidad.DEPTH_ANYTHING_SMALL)
+            value=etiqueta_modelo(self._modelo_interno, self._idioma)
         )
         self.device = tk.StringVar(value="auto")
         self.progress_value = tk.DoubleVar(value=0.0)
         self.progress_label_text = tk.StringVar(value="")
+        self.plan_label_text = tk.StringVar(value="")
         self.start_time: float | None = None
         self._recoding_start_time: float | None = None
         self.total_frames: int = 0
         self._cancel_event = threading.Event()
         self._conversion_thread: threading.Thread | None = None
+        self._estado_licencia = estado_suscripcion_actual()
 
         self._build_interface()
+        self._apply_language()
+        self._refresh_plan_ui()
 
     def _build_interface(self) -> None:
         padding = {"padx": 12, "pady": 8}
 
         frame = ttk.Frame(self)
         frame.pack(fill="both", expand=True, **padding)
+        frame.columnconfigure(0, weight=1)
 
         logo_path = Path(__file__).resolve().parents[1] / "mantis.png"
         logo_displayed = False
@@ -116,28 +146,37 @@ class ConversorGUI(tk.Tk):
                 font=("Segoe UI", 18, "bold"),
             ).grid(row=0, column=0, columnspan=2, pady=(0, 8))
 
-        ttk.Label(frame, text="Video de entrada:").grid(row=1, column=0, sticky="w")
-        self.input_entry = ttk.Entry(frame, width=56)
-        self.input_entry.grid(row=2, column=0, sticky="w")
-        ttk.Button(frame, text="Buscar...", command=self._choose_input).grid(
-            row=2, column=1, sticky="e"
-        )
+        self._label_input = ttk.Label(frame, text="")
+        self._label_input.grid(row=1, column=0, columnspan=2, sticky="w")
 
-        # El botón "Guardar como..." se muestra al pulsar "Convertir a 3D".
+        input_row = ttk.Frame(frame)
+        input_row.grid(row=2, column=0, columnspan=2, sticky="ew")
+        self._browse_button = ttk.Button(input_row, text="", command=self._choose_input)
+        self._browse_button.pack(side="right")
+        self.input_entry = ttk.Entry(input_row)
+        self.input_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
 
-        ttk.Label(frame, text="Resolución de salida:").grid(row=4, column=0, sticky="w")
+        self._label_resolution = ttk.Label(frame, text="")
+        self._label_resolution.grid(row=4, column=0, sticky="w")
         self.resolution_combo = ttk.Combobox(
             frame,
             textvariable=self.resolution,
-            values=[r.value for r in ResolucionSalida],
+            values=[],
             state="readonly",
             width=14,
         )
         self.resolution_combo.grid(row=5, column=0, sticky="w")
 
+        self._label_plan = ttk.Label(
+            frame,
+            textvariable=self.plan_label_text,
+            foreground="#555555",
+        )
+        self._label_plan.grid(row=5, column=1, sticky="e", padx=(8, 0))
+
         self.advanced_button = ttk.Button(
             frame,
-            text="Opciones de IA avanzadas ▼",
+            text="",
             command=self._toggle_advanced,
         )
         self.advanced_button.grid(row=6, column=0, sticky="w", pady=(16, 0))
@@ -150,7 +189,7 @@ class ConversorGUI(tk.Tk):
 
         self.advanced_canvas = tk.Canvas(
             self.advanced_frame,
-            height=220,
+            height=140,
             highlightthickness=0,
         )
         self.advanced_scrollbar = ttk.Scrollbar(
@@ -183,13 +222,14 @@ class ConversorGUI(tk.Tk):
         )
 
         self._build_advanced_options(self.advanced_options_frame)
+        self.bind("<Button-1>", self._on_global_click, add="+")
 
         botones_frame = ttk.Frame(frame)
         botones_frame.grid(row=8, column=0, columnspan=2, pady=(16, 0))
 
         self.convert_button = ttk.Button(
             botones_frame,
-            text="Convertir a 3D",
+            text="",
             command=self._on_convert,
             width=18,
         )
@@ -197,16 +237,15 @@ class ConversorGUI(tk.Tk):
 
         self.cancel_button = ttk.Button(
             botones_frame,
-            text="Cancelar",
+            text="",
             command=self._on_cancel,
             width=12,
             state="disabled",
         )
         self.cancel_button.pack(side="left")
 
-        ttk.Label(frame, text="Progreso:").grid(
-            row=9, column=0, sticky="w", pady=(16, 0)
-        )
+        self._label_progress = ttk.Label(frame, text="")
+        self._label_progress.grid(row=9, column=0, sticky="w", pady=(16, 0))
         self.progress_bar = ttk.Progressbar(
             frame,
             variable=self.progress_value,
@@ -225,17 +264,29 @@ class ConversorGUI(tk.Tk):
             row=11, column=0, columnspan=2, sticky="w", pady=(4, 0)
         )
 
-        frame.columnconfigure(0, weight=1)
+        footer = ttk.Frame(frame)
+        footer.grid(row=12, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        footer.columnconfigure(0, weight=1)
+
+        self.language_button = ttk.Button(
+            footer,
+            text="",
+            command=self._toggle_language,
+            width=18,
+        )
+        self.language_button.grid(row=0, column=1, sticky="e")
 
     def _build_advanced_options(self, parent: ttk.Frame) -> None:
-        ttk.Checkbutton(
+        self._chk_offset_manual = ttk.Checkbutton(
             parent,
-            text="Offset manual",
+            text="",
             variable=self.offset_manual,
             command=self._on_offset_toggle,
-        ).grid(row=0, column=0, sticky="w", padx=8, pady=8)
+        )
+        self._chk_offset_manual.grid(row=0, column=0, sticky="w", padx=8, pady=8)
 
-        ttk.Label(parent, text="Offset (px):").grid(row=1, column=0, sticky="w", padx=8)
+        self._label_offset_px = ttk.Label(parent, text="")
+        self._label_offset_px.grid(row=1, column=0, sticky="w", padx=8)
         self.offset_slider = ttk.Scale(
             parent,
             from_=0,
@@ -247,12 +298,11 @@ class ConversorGUI(tk.Tk):
         )
         self.offset_slider.grid(row=2, column=0, padx=8, pady=(0, 4), sticky="w")
 
-        self.offset_label = ttk.Label(parent, text="Offset actual: 0 px")
+        self.offset_label = ttk.Label(parent, text="")
         self.offset_label.grid(row=3, column=0, sticky="w", padx=8, pady=(0, 8))
 
-        ttk.Label(parent, text="Intensidad (solo profundidad):").grid(
-            row=4, column=0, sticky="w", padx=8
-        )
+        self._label_intensity = ttk.Label(parent, text="")
+        self._label_intensity.grid(row=4, column=0, sticky="w", padx=8)
         self.intensity_slider = ttk.Scale(
             parent,
             from_=0.0,
@@ -263,24 +313,26 @@ class ConversorGUI(tk.Tk):
             length=360,
         )
         self.intensity_slider.grid(row=5, column=0, padx=8, pady=(0, 4), sticky="w")
-        self.intensity_label = ttk.Label(
-            parent, text=f"Intensidad: {INTENSIDAD_PROFUNDIDAD_DEFECTO:.2f}"
-        )
+        self.intensity_label = ttk.Label(parent, text="")
         self.intensity_label.grid(row=6, column=0, sticky="w", padx=8, pady=(0, 8))
 
-        ttk.Label(parent, text="Modelo de profundidad:").grid(
-            row=7, column=0, sticky="w", padx=8
-        )
+        self._label_depth_model = ttk.Label(parent, text="")
+        self._label_depth_model.grid(row=7, column=0, sticky="w", padx=8)
         self.model_combo = ttk.Combobox(
             parent,
             textvariable=self.depth_model,
-            values=[ETIQUETAS_MODELO_PROFUNDIDAD[m] for m in ModeloProfundidad],
+            values=[],
             state="readonly",
             width=42,
         )
         self.model_combo.grid(row=8, column=0, sticky="w", padx=8, pady=(0, 10))
+        self.model_combo.bind(
+            "<<ComboboxSelected>>",
+            lambda _event: self._sync_modelo_interno(),
+        )
 
-        ttk.Label(parent, text="Inferencia:").grid(row=9, column=0, sticky="w", padx=8)
+        self._label_inference = ttk.Label(parent, text="")
+        self._label_inference.grid(row=9, column=0, sticky="w", padx=8)
         self.device_combo = ttk.Combobox(
             parent,
             textvariable=self.device,
@@ -290,33 +342,114 @@ class ConversorGUI(tk.Tk):
         )
         self.device_combo.grid(row=10, column=0, sticky="w", padx=8, pady=(0, 10))
 
-        ttk.Label(parent, text="Modo estéreo:").grid(
-            row=11, column=0, sticky="w", padx=8
-        )
+        self._label_stereo_mode = ttk.Label(parent, text="")
+        self._label_stereo_mode.grid(row=11, column=0, sticky="w", padx=8)
         self.mode_combo = ttk.Combobox(
             parent,
             textvariable=self.stereo_mode,
-            values=[m.value for m in ModoEstereo],
+            values=[],
             state="readonly",
             width=14,
         )
         self.mode_combo.grid(row=12, column=0, sticky="w", padx=8, pady=(0, 10))
-        self.mode_combo.bind("<<ComboboxSelected>>", lambda _event: self._set_default_output())
+        self.mode_combo.bind("<<ComboboxSelected>>", self._on_mode_selected)
 
-        ttk.Checkbutton(
+        self._chk_h264 = ttk.Checkbutton(
             parent,
-            text="Realizar codificación final H.264 compatible",
+            text="",
             variable=self.codificar_final,
-        ).grid(row=13, column=0, sticky="w", padx=8, pady=(0, 10))
+        )
+        self._chk_h264.grid(row=13, column=0, sticky="w", padx=8, pady=(0, 10))
 
         self._on_offset_toggle()
 
+    def _lang(self) -> Idioma:
+        return self._idioma
+
+    def _apply_language(self) -> None:
+        lang = self._lang()
+        advanced_expanded = self.advanced_frame.winfo_ismapped()
+
+        self._label_input.config(text=t("input_video", lang))
+        self._browse_button.config(text=t("browse", lang))
+        self._label_resolution.config(text=t("output_resolution", lang))
+        if advanced_expanded:
+            self.advanced_button.config(text=t("advanced_hide", lang))
+        else:
+            self.advanced_button.config(text=t("advanced_ai_show", lang))
+        self.convert_button.config(text=t("convert", lang))
+        self.cancel_button.config(text=t("cancel", lang))
+        self._label_progress.config(text=t("progress", lang))
+        self.language_button.config(
+            text=t("switch_to_es", lang)
+            if lang is Idioma.EN
+            else t("switch_to_en", lang)
+        )
+
+        self._chk_offset_manual.config(text=t("manual_offset", lang))
+        self._label_offset_px.config(text=t("offset_px", lang))
+        self._label_intensity.config(text=t("intensity_depth", lang))
+        self._label_depth_model.config(text=t("depth_model", lang))
+        self._label_inference.config(text=t("inference", lang))
+        self._label_stereo_mode.config(text=t("stereo_mode", lang))
+        self._chk_h264.config(text=t("h264_encode", lang))
+
+        self.model_combo.configure(
+            values=[etiqueta_modelo(m, lang) for m in ModeloProfundidad]
+        )
+        self.depth_model.set(etiqueta_modelo(self._modelo_interno, lang))
+
+        self.mode_combo.configure(values=modos_visibles(lang))
+        self.stereo_mode.set(modo_mostrar(self._modo_interno, lang))
+
+        self._on_offset_toggle()
+        self._update_intensity_label()
+        self._refresh_plan_ui()
+
+    def _refresh_plan_ui(self) -> None:
+        lang = self._lang()
+        estado = self._estado_licencia
+        permitidas = [r.value for r in resoluciones_para_plan(estado.plan)]
+        self.resolution_combo.configure(values=permitidas)
+        if self.resolution.get() not in permitidas and permitidas:
+            self.resolution.set(permitidas[0])
+
+        if estado.plan is Plan.PRO:
+            self.plan_label_text.set(t("plan_pro", lang))
+        else:
+            self.plan_label_text.set(
+                t(
+                    "plan_demo",
+                    lang,
+                    used=estado.conversiones_usadas,
+                    max=DEMO_MAX_CONVERSIONES,
+                )
+            )
+
+    def _toggle_language(self) -> None:
+        try:
+            self._idioma = Idioma.ES if self._idioma is Idioma.EN else Idioma.EN
+            guardar_idioma(self._idioma)
+            self._apply_language()
+        except Exception as error:
+            messagebox.showerror(t("error_title", self._lang()), str(error))
+
+    def _sync_modelo_interno(self) -> None:
+        self._modelo_interno = modelo_profundidad_desde_etiqueta(
+            self.depth_model.get()
+        )
+
+    def _on_mode_selected(self, _event: tk.Event | None = None) -> None:
+        self._modo_interno = modo_interno(self.stereo_mode.get(), self._lang())
+        self._set_default_output()
+
     def _choose_input(self) -> None:
+        lang = self._lang()
         ruta = filedialog.askopenfilename(
-            title="Seleccionar video de entrada",
+            title=t("dialog_input_title", lang),
             filetypes=[
-                ("Video files", "*.mp4 *.mov *.avi *.mkv"),
-                ("Todos los archivos", "*"),
+                (t("filetype_video", lang), "*.mp4 *.mov *.avi *.mkv"),
+                (t("filetype_all", lang), "*"),
             ],
         )
         if not ruta:
@@ -331,89 +464,160 @@ class ConversorGUI(tk.Tk):
             return
         self.output_path = ruta_salida_por_defecto(
             self.input_path,
-            self.stereo_mode.get(),
+            self._modo_interno,
         )
 
-    def _choose_output(self) -> None:
+    def _choose_output(self) -> bool:
+        lang = self._lang()
         initialfile = None
         if self.input_path is not None:
             initialfile = ruta_salida_por_defecto(
                 self.input_path,
-                self.stereo_mode.get(),
+                self._modo_interno,
             ).name
         ruta = filedialog.asksaveasfilename(
-            title="Seleccionar archivo de salida",
+            title=t("dialog_output_title", lang),
             defaultextension=".mp4",
             initialfile=initialfile,
-            filetypes=[("MP4 video", "*.mp4"), ("Todos los archivos", "*")],
+            filetypes=[
+                (t("filetype_mp4", lang), "*.mp4"),
+                (t("filetype_all", lang), "*"),
+            ],
         )
         if not ruta:
-            return
+            return False
         self.output_path = Path(ruta)
+        return True
 
     def _toggle_advanced(self) -> None:
         if self.advanced_frame.winfo_ismapped():
-            self.advanced_frame.grid_remove()
-            self.advanced_button.config(text="Opciones avanzadas ▼")
+            self._collapse_advanced_options()
+            self.geometry("520x600")
         else:
             self.advanced_frame.grid()
-            self.advanced_button.config(text="Opciones avanzadas ▲")
+            self.advanced_button.config(text=t("advanced_hide", self._lang()))
+            self.geometry("520x760")
+
+    def _collapse_advanced_options(self) -> None:
+        if self.advanced_frame.winfo_ismapped():
+            self.advanced_frame.grid_remove()
+            self.advanced_button.config(text=t("advanced_ai_show", self._lang()))
+            self.geometry("520x600")
+
+    def _widget_is_in_advanced_area(self, widget: tk.Widget) -> bool:
+        while widget is not None:
+            if widget in {
+                self.advanced_frame,
+                self.advanced_canvas,
+                self.advanced_scrollbar,
+                self.advanced_options_frame,
+                self.advanced_button,
+            }:
+                return True
+            widget = getattr(widget, "master", None)
+        return False
+
+    def _on_global_click(self, event: tk.Event) -> None:
+        if not self.advanced_frame.winfo_ismapped():
+            return
+        widget = event.widget
+        # No interferir con botones principales.
+        if widget in {
+            self.convert_button,
+            self.cancel_button,
+            self.language_button,
+            self._browse_button,
+        }:
+            return
+        if self._widget_is_in_advanced_area(widget):
+            return
+        self._collapse_advanced_options()
 
     def _on_offset_toggle(self) -> None:
+        lang = self._lang()
         estado = "!disabled" if self.offset_manual.get() else "disabled"
         self.offset_slider.state([estado])
-        self.offset_label.configure(text=f"Offset actual: {self.offset_value.get()} px")
-        if not self.offset_manual.get():
+        if self.offset_manual.get():
+            self.offset_label.configure(
+                text=t("offset_current", lang, value=self.offset_value.get())
+            )
+        else:
             self.offset_value.set(0)
-            self.offset_label.configure(text="Offset automático")
+            self.offset_label.configure(text=t("offset_auto", lang))
 
     def _update_offset_label(self) -> None:
-        self.offset_label.configure(text=f"Offset actual: {self.offset_value.get()} px")
+        self.offset_label.configure(
+            text=t("offset_current", self._lang(), value=self.offset_value.get())
+        )
 
     def _update_intensity_label(self) -> None:
-        self.intensity_label.configure(text=f"Intensidad: {self.intensity.get():.2f}")
+        self.intensity_label.configure(
+            text=t("intensity_current", self._lang(), value=self.intensity.get())
+        )
 
     def _on_convert(self) -> None:
         if self.convert_button.instate(["disabled"]):
             return
 
-        entrada = self.input_entry.get().strip()
-        if not entrada:
-            messagebox.showwarning("Advertencia", "Selecciona un video de entrada.")
-            return
+        lang = self._lang()
+        try:
+            entrada = self.input_entry.get().strip()
+            if not entrada:
+                messagebox.showwarning(t("warn_title", lang), t("warn_no_input", lang))
+                return
 
-        self.input_path = Path(entrada)
-        if not self.input_path.is_file():
-            messagebox.showerror(
-                "Error", "No se encontró el archivo de entrada seleccionado."
+            self.input_path = Path(entrada)
+            if not self.input_path.is_file():
+                messagebox.showerror(
+                    t("error_title", lang),
+                    t("error_input_missing", lang),
+                )
+                return
+
+            self._sync_modelo_interno()
+            self._on_mode_selected()
+
+            self._estado_licencia = estado_suscripcion_actual()
+            try:
+                politica = validar_conversion(
+                    plan=self._estado_licencia.plan,
+                    resolucion=self.resolution.get(),
+                    conversiones_usadas=self._estado_licencia.conversiones_usadas,
+                )
+            except LicenciaError as error:
+                messagebox.showerror(t("license_title", lang), str(error))
+                self._refresh_plan_ui()
+                return
+
+            self._collapse_advanced_options()
+            if not self._choose_output():
+                return
+
+            self.convert_button.state(["disabled"])
+            self.cancel_button.state(["!disabled"])
+            self._cancel_event.clear()
+            self.progress_value.set(0.0)
+            self.progress_label_text.set(t("starting", lang))
+            self.start_time = time.time()
+            self.total_frames = 0
+            self._politica_activa = politica
+            self._conversion_thread = threading.Thread(
+                target=self._run_conversion,
+                daemon=True,
             )
-            return
-
-        # Pedir siempre la ruta de salida al usuario antes de convertir
-        self._choose_output()
-        if self.output_path is None:
-            messagebox.showwarning("Advertencia", "Selecciona una ruta de salida.")
-            return
-
-        self.convert_button.state(["disabled"])
-        self.cancel_button.state(["!disabled"])
-        self._cancel_event.clear()
-        self.progress_value.set(0.0)
-        self.progress_label_text.set("Iniciando...")
-        self.start_time = time.time()
-        self.total_frames = 0
-        self._conversion_thread = threading.Thread(
-            target=self._run_conversion,
-            daemon=True,
-        )
-        self._conversion_thread.start()
+            self._conversion_thread.start()
+        except Exception as error:
+            messagebox.showerror(t("error_title", lang), str(error))
+            self.convert_button.state(["!disabled"])
+            self.cancel_button.state(["disabled"])
 
     def _on_cancel(self) -> None:
         if self._conversion_thread is not None and self._conversion_thread.is_alive():
             self._cancel_event.set()
-            self.progress_label_text.set("Cancelando...")
+            self.progress_label_text.set(t("cancelling", self._lang()))
 
     def _run_conversion(self) -> None:
+        lang = self._lang()
         try:
             offset = (
                 None if not self.offset_manual.get() else int(self.offset_value.get())
@@ -476,42 +680,43 @@ class ConversorGUI(tk.Tk):
                 self.output_path,
                 offset=offset,
                 resolucion=self.resolution.get(),
-                modo=self.stereo_mode.get(),
-                modelo_profundidad=modelo_profundidad_desde_etiqueta(
-                    self.depth_model.get()
-                ).value,
+                modo=self._modo_interno,
+                modelo_profundidad=self._modelo_interno.value,
                 intensidad_profundidad=self.intensity.get(),
                 dispositivo_profundidad=dispositivo,
                 codificar_final=self.codificar_final.get(),
                 mostrar_progreso=False,
                 callback_progreso=progress_callback,
                 cancelar=self._cancel_event.is_set,
+                max_segundos=self._politica_activa.max_segundos,
             )
             if self._cancel_event.is_set():
                 raise ConversionCancelada()
             self.total_frames = info["fotogramas"]
+            self._estado_licencia = registrar_conversion_exitosa(self._estado_licencia)
+            self.after(0, self._refresh_plan_ui)
             self.after(0, self._update_progress, 100, 0, "finalizado")
             self.after(
                 0,
                 messagebox.showinfo,
-                "Conversión completa",
-                f"Video convertido correctamente:\n{self.output_path}",
+                t("success_title", lang),
+                t("success_message", lang, path=self.output_path),
             )
         except ConversionCancelada:
-            self.after(0, self._log, "Cancelado")
+            self.after(0, self._log, t("cancelled", lang))
             self.after(
                 0,
                 messagebox.showinfo,
-                "Cancelado",
-                "La conversión fue cancelada.",
+                t("cancelled_title", lang),
+                t("cancelled_message", lang),
             )
         except Exception as error:
             self.after(0, self._log, f"Error: {error}")
             self.after(
                 0,
                 messagebox.showerror,
-                "Error",
-                f"No se pudo convertir el video:\n{error}",
+                t("error_title", lang),
+                t("error_message", lang, error=error),
             )
         finally:
             self.after(0, self.convert_button.state, ["!disabled"])
@@ -525,16 +730,16 @@ class ConversorGUI(tk.Tk):
         etapa: str = "procesando",
     ) -> None:
         """Actualiza la barra de progreso y el label."""
+        lang = self._lang()
         self.progress_value.set(min(percentage, 100.0))
         if percentage >= 100 or etapa == "finalizado":
-            self.progress_label_text.set("Listo")
+            self.progress_label_text.set(t("done", lang))
         else:
             mins, secs = divmod(remaining_seconds, 60)
-            if etapa == "codificacion":
-                texto = f"Codificando H.264: {percentage:.1f}% - Tiempo restante: {mins}m {secs}s"
-            else:
-                texto = f"Procesando fotogramas: {percentage:.1f}% - Tiempo restante: {mins}m {secs}s"
-            self.progress_label_text.set(texto)
+            clave = "progress_encoding" if etapa == "codificacion" else "progress_frames"
+            self.progress_label_text.set(
+                t(clave, lang, pct=percentage, mins=mins, secs=secs)
+            )
 
     def _log(self, texto: str) -> None:
         self.progress_label_text.set(texto)

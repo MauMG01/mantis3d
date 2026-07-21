@@ -41,6 +41,21 @@ class TestProcesadorBasico(unittest.TestCase):
             "demo_sbs_depth.mp4",
         )
 
+    def test_dimensiones_1080_y_4k(self) -> None:
+        from src.procesador import ResolucionSalida, dimensiones_por_resolucion
+
+        dims_1080 = dimensiones_por_resolucion(ResolucionSalida.SBS_1080, 1280, 720)
+        self.assertEqual(dims_1080.ancho_sbs, 3840)
+        self.assertEqual(dims_1080.alto_sbs, 1080)
+        self.assertEqual(dims_1080.ancho_ojo, 1920)
+        self.assertEqual(dims_1080.alto_ojo, 1080)
+
+        dims_4k = dimensiones_por_resolucion(ResolucionSalida.SBS_4K, 1280, 720)
+        self.assertEqual(dims_4k.ancho_sbs, 7680)
+        self.assertEqual(dims_4k.alto_sbs, 2160)
+        self.assertEqual(dims_4k.ancho_ojo, 3840)
+        self.assertEqual(dims_4k.alto_ojo, 2160)
+
 
 class TestConversionFijo(unittest.TestCase):
     def test_convertir_video_modo_fijo(self) -> None:

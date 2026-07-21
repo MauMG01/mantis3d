@@ -12,7 +12,8 @@ import numpy as np
 ANCHO_INFERENCIA_DEFECTO = 518
 
 # Estabilización anti-fantasma (suavizado temporal + rango global + filtro bilateral).
-INTENSIDAD_PROFUNDIDAD_DEFECTO = 0.5
+INTENSIDAD_PROFUNDIDAD_DEFECTO = 0.45
+OFFSET_PROFUNDIDAD_DEFECTO = 24
 FRAMES_CALIBRACION_GLOBAL = 24
 SUAVIZADO_TEMPORAL_DEFECTO = 0.35
 BILATERAL_DIAMETRO = 5
@@ -24,6 +25,9 @@ class ModeloProfundidad(str, Enum):
     DEPTH_ANYTHING_SMALL = "depth-anything-small"
     DEPTH_ANYTHING_BASE = "depth-anything-base"
     MIDAS_SMALL = "midas-small"
+
+
+MODELO_PROFUNDIDAD_DEFECTO = ModeloProfundidad.DEPTH_ANYTHING_BASE
 
 
 ETIQUETAS_MODELO_PROFUNDIDAD: dict[ModeloProfundidad, str] = {
@@ -39,6 +43,11 @@ def etiqueta_modelo_profundidad(modelo: ModeloProfundidad | str) -> str:
 
 def modelo_profundidad_desde_etiqueta(texto: str) -> ModeloProfundidad:
     """Resuelve la etiqueta amigable de la GUI (o el valor CLI) al enum."""
+    from .i18n import etiquetas_modelo_todas
+
+    for modelo, etiqueta in etiquetas_modelo_todas():
+        if texto == etiqueta:
+            return modelo
     for modelo, etiqueta in ETIQUETAS_MODELO_PROFUNDIDAD.items():
         if texto == etiqueta:
             return modelo
@@ -87,7 +96,7 @@ class EstimadorProfundidad:
 
     def __init__(
         self,
-        modelo: ModeloProfundidad | str = ModeloProfundidad.DEPTH_ANYTHING_SMALL,
+        modelo: ModeloProfundidad | str = MODELO_PROFUNDIDAD_DEFECTO,
         *,
         dispositivo: str | None = None,
         ancho_inferencia: int = ANCHO_INFERENCIA_DEFECTO,

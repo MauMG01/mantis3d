@@ -35,3 +35,10 @@ __pycache__/
 .idea/
 .vscode/
 *.swp
+
+# Licencias / backend
+backend/.env
+backend/*.db
+backend/.venv/
+*.db
+mantis_licensing.db

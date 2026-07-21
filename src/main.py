@@ -6,6 +6,12 @@ import argparse
 import sys
 from pathlib import Path
 
+from .licensing import (
+    LicenciaError,
+    estado_suscripcion_actual,
+    registrar_conversion_exitosa,
+    validar_conversion,
+)
 from .procesador import (
     ConversionCancelada,
     ModoEstereo,
@@ -13,7 +19,12 @@ from .procesador import (
     convertir_video_a_sbs,
     ruta_salida_por_defecto,
 )
-from .profundidad import INTENSIDAD_PROFUNDIDAD_DEFECTO, ModeloProfundidad
+from .profundidad import (
+    INTENSIDAD_PROFUNDIDAD_DEFECTO,
+    MODELO_PROFUNDIDAD_DEFECTO,
+    OFFSET_PROFUNDIDAD_DEFECTO,
+    ModeloProfundidad,
+)
 
 
 def parsear_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
@@ -38,7 +49,7 @@ def parsear_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
         "--modo",
         type=ModoEstereo,
         choices=[m.value for m in ModoEstereo],
-        default=ModoEstereo.FIJO,
+        default=ModoEstereo.PROFUNDIDAD,
         help=(
             "fijo: offset horizontal constante. "
             "profundidad: mapa de profundidad por fotograma (IA)."
@@ -47,12 +58,12 @@ def parsear_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--offset",
         type=int,
-        default=None,
+        default=OFFSET_PROFUNDIDAD_DEFECTO,
         metavar="PX",
         help=(
             "Separación máxima en píxeles (ancho del video de entrada). "
-            "Si se omite, ~2 %% del ancho. En modo profundidad es la disparidad "
-            "máxima en primer plano."
+            f"Por defecto: {OFFSET_PROFUNDIDAD_DEFECTO}. En modo profundidad es la "
+            "disparidad máxima en primer plano."
         ),
     )
     parser.add_argument(
@@ -60,18 +71,19 @@ def parsear_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
         "--resolucion",
         type=ResolucionSalida,
         choices=[r.value for r in ResolucionSalida],
-        default=ResolucionSalida.ORIGINAL,
+        default=ResolucionSalida.SBS_1080,
         metavar="MODO",
         help=(
-            "Resolución SBS: original (tamaño del origen), "
-            "6k (6144x3072), 8k (7680x4320). Por defecto: original."
+            "Resolución SBS: original, 1080 (3840x1080), 4k (7680x2160), "
+            "6k (6144x3072), 8k (7680x4320). Demo: solo 1080. "
+            "Por defecto: 1080."
         ),
     )
     parser.add_argument(
         "--modelo",
         type=ModeloProfundidad,
         choices=[m.value for m in ModeloProfundidad],
-        default=ModeloProfundidad.DEPTH_ANYTHING_SMALL,
+        default=MODELO_PROFUNDIDAD_DEFECTO,
         help="Modelo de profundidad (solo con --modo profundidad).",
     )
     parser.add_argument(
@@ -128,13 +140,27 @@ def main(argv: list[str] | None = None) -> int:
         print("Error: --intensidad debe estar entre 0 y 2.", file=sys.stderr)
         return 1
 
+    estado = estado_suscripcion_actual()
+    try:
+        politica = validar_conversion(
+            plan=estado.plan,
+            resolucion=args.resolucion,
+            conversiones_usadas=estado.conversiones_usadas,
+        )
+    except LicenciaError as error:
+        print(f"Error de licencia: {error}", file=sys.stderr)
+        return 1
+
     salida = (args.salida or ruta_salida_por_defecto(entrada, modo)).resolve()
     dispositivo = None if args.dispositivo == "auto" else args.dispositivo
 
     print(f"Entrada:    {entrada}")
     print(f"Archivo:    {salida}")
+    print(f"Plan:       {estado.plan.value}")
     print(f"Modo:       {modo.value}")
     print(f"Resolución: {args.resolucion.value}")
+    if politica.max_segundos is not None:
+        print(f"Límite:     {politica.max_segundos:.0f}s (Demo)")
     if modo is ModoEstereo.PROFUNDIDAD:
         print(f"Modelo:     {args.modelo.value}")
         print(f"Intensidad: {args.intensidad}")
@@ -152,7 +178,9 @@ def main(argv: list[str] | None = None) -> int:
             intensidad_profundidad=args.intensidad,
             dispositivo_profundidad=dispositivo,
             codificar_final=args.codificar_final,
+            max_segundos=politica.max_segundos,
         )
+        registrar_conversion_exitosa(estado)
     except ConversionCancelada:
         print("Conversión cancelada.", file=sys.stderr)
         return 130

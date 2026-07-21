@@ -1,0 +1,4 @@
+# Cliente desktop: auth JWT + llamadas a la API de licencias
+httpx>=0.27.0
+keyring>=25.0.0
+PyJWT>=2.8.0

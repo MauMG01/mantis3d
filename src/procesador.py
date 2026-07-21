@@ -28,6 +28,8 @@ OFFSET_MINIMO_PX = 8
 
 class ResolucionSalida(str, Enum):
     ORIGINAL = "original"
+    SBS_1080 = "1080"
+    SBS_4K = "4k"
     SBS_6K = "6k"
     SBS_8K = "8k"
 
@@ -55,8 +57,10 @@ class DimensionesSBS(NamedTuple):
     alto_ojo: int
 
 
-# Ancho total SBS x alto del fotograma completo
+# Ancho total SBS x alto del fotograma completo (cada ojo = mitad del ancho).
 _PRESETS_SBS: dict[ResolucionSalida, tuple[int, int]] = {
+    ResolucionSalida.SBS_1080: (3840, 1080),
+    ResolucionSalida.SBS_4K: (7680, 2160),
     ResolucionSalida.SBS_6K: (6144, 3072),
     ResolucionSalida.SBS_8K: (7680, 4320),
 }
@@ -451,6 +455,7 @@ def convertir_video_a_sbs(
     mostrar_progreso: bool = True,
     callback_progreso: callable[[int, int, str], None] | None = None,
     cancelar: Callable[[], bool] | None = None,
+    max_segundos: float | None = None,
 ) -> dict[str, int | float | str | bool]:
     """
     Lee un video 2D y escribe uno SBS.
@@ -463,11 +468,14 @@ def convertir_video_a_sbs(
 
     Si ``offset`` es ``None``, se calcula uno recomendado (~2 % del ancho);
     en modo profundidad define la disparidad máxima en el plano cercano.
+
+    Si ``max_segundos`` se indica (p. ej. Demo = 60), se procesan como máximo
+    esos segundos de video.
     
     Si ``callback_progreso`` se proporciona, se llama con (fotograma_actual, total_fotogramas)
     cada vez que se procesa un fotograma.
     """
-    from .profundidad import EstimadorProfundidad, ModeloProfundidad
+    from .profundidad import EstimadorProfundidad, MODELO_PROFUNDIDAD_DEFECTO, ModeloProfundidad
 
     modo = ModoEstereo(modo)
     ruta_entrada = Path(ruta_entrada)
@@ -493,6 +501,12 @@ def convertir_video_a_sbs(
     alto = int(captura.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = captura.get(cv2.CAP_PROP_FPS) or 30.0
     total = int(captura.get(cv2.CAP_PROP_FRAME_COUNT))
+    if max_segundos is not None and max_segundos > 0 and fps > 0:
+        limite_fotogramas = max(1, int(max_segundos * fps))
+        if total <= 0:
+            total = limite_fotogramas
+        else:
+            total = min(total, limite_fotogramas)
     resolucion = ResolucionSalida(resolucion)
     dimensiones = dimensiones_por_resolucion(resolucion, ancho, alto)
 
@@ -512,7 +526,7 @@ def convertir_video_a_sbs(
 
     estimador: EstimadorProfundidad | None = None
     if modo is ModoEstereo.PROFUNDIDAD:
-        modelo = modelo_profundidad or ModeloProfundidad.DEPTH_ANYTHING_SMALL
+        modelo = modelo_profundidad or MODELO_PROFUNDIDAD_DEFECTO
         if mostrar_progreso:
             dispositivo_txt = dispositivo_profundidad or "auto"
             print(f"Modo profundidad: {modelo.value} (dispositivo: {dispositivo_txt})")
@@ -546,6 +560,9 @@ def convertir_video_a_sbs(
         while True:
             if _cancelacion_solicitada(cancelar):
                 raise ConversionCancelada()
+
+            if total > 0 and fotograma_idx >= total:
+                break
 
             ok, frame = captura.read()
             if not ok:
