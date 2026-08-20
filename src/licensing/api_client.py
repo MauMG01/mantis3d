@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from .policy import Plan
+from .settings import licensing_api_url
 
 
 @dataclass
@@ -26,8 +26,7 @@ class LicensingAPIError(Exception):
 
 def api_base_url() -> str | None:
     """URL del backend. Si no está definida, la app opera en modo local (Demo)."""
-    url = os.environ.get("MANTIS_API_URL", "").strip().rstrip("/")
-    return url or None
+    return licensing_api_url()
 
 
 class LicensingClient:
@@ -116,6 +115,19 @@ class LicensingClient:
         with httpx.Client(timeout=self.timeout_s) as client:
             respuesta = client.post(
                 f"{self.base_url}/billing/checkout",
+                headers=self._headers(token),
+            )
+        if respuesta.status_code >= 400:
+            raise LicensingAPIError(respuesta.text)
+        return str(respuesta.json()["url"])
+
+    def crear_portal(self, token: str) -> str:
+        """Devuelve la URL del Customer Portal de Stripe."""
+        if not self.disponible:
+            raise LicensingAPIError("MANTIS_API_URL is not configured.")
+        with httpx.Client(timeout=self.timeout_s) as client:
+            respuesta = client.post(
+                f"{self.base_url}/billing/portal",
                 headers=self._headers(token),
             )
         if respuesta.status_code >= 400:

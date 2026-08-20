@@ -21,6 +21,18 @@ pip install -r requirements-licensing.txt   # auth cliente (httpx, keyring, JWT)
 pip install -r requirements-depth.txt       # solo para modo profundidad (IA)
 ```
 
+## Instaladores
+
+| Plataforma | Cómo generar | Resultado |
+|------------|--------------|-----------|
+| macOS Apple Silicon | `./scripts/build_mac.sh` | `dist/MANTIS3D.dmg` |
+| macOS Intel (Monterey) | `./scripts/build_mac_intel.sh` | `dist/MANTIS3D-intel.dmg` |
+| Windows 64-bit | En un PC Windows: `.\scripts\build_windows.ps1` | `dist/MANTIS3D-windows.zip` |
+
+PyInstaller no cruza de Mac a Windows: el `.exe` hay que compilarlo **en Windows** (o con el workflow `.github/workflows/build-windows.yml`).
+
+En Windows, descomprime el ZIP y ejecuta `MANTIS3D.exe`. SmartScreen puede avisar la primera vez (app sin firma).
+
 Backend de suscripciones (opcional, para Stripe):
 
 ```bash
@@ -133,6 +145,8 @@ conversor3D/
 │   ├── i18n.py
 │   └── licensing/      # Demo/Pro + cliente API
 ├── backend/            # FastAPI + Stripe
+├── packaging/          # PyInstaller (Mac + Windows)
+├── scripts/            # build_mac.sh, build_mac_intel.sh, build_windows.ps1
 ├── tests/
 ├── requirements.txt
 ├── requirements-licensing.txt

@@ -15,6 +15,15 @@ from ..schemas import CheckoutResponse
 router = APIRouter(prefix="/billing", tags=["billing"])
 
 
+def _as_dict(obj: object) -> dict:
+    if isinstance(obj, dict):
+        return obj
+    to_dict = getattr(obj, "to_dict", None)
+    if callable(to_dict):
+        return to_dict()
+    return {}
+
+
 def _stripe_ready() -> None:
     if not settings.stripe_secret_key or not settings.stripe_price_id_pro:
         raise HTTPException(
@@ -77,10 +86,11 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)) -> dic
         raise HTTPException(status_code=400, detail=f"Webhook error: {exc}") from exc
 
     event_type = event["type"]
-    data = event["data"]["object"]
+    data = _as_dict(event["data"]["object"])
 
     if event_type == "checkout.session.completed":
-        email = (data.get("metadata") or {}).get("user_email")
+        metadata = data.get("metadata") or {}
+        email = metadata.get("user_email") if isinstance(metadata, dict) else None
         customer_id = data.get("customer")
         subscription_id = data.get("subscription")
         user = None
@@ -96,6 +106,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)) -> dic
             db.commit()
 
     elif event_type in {
+        "customer.subscription.created",
         "customer.subscription.deleted",
         "customer.subscription.updated",
     }:
@@ -110,7 +121,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)) -> dic
             }:
                 user.plan = "demo"
                 user.stripe_subscription_id = None
-            elif status == "active":
+            elif status in {"active", "trialing"}:
                 user.plan = "pro"
                 user.stripe_subscription_id = data.get("id")
             db.add(user)

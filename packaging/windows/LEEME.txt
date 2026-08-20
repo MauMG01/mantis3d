@@ -1,0 +1,17 @@
+MANTIS 3D — Windows
+
+1. Descomprime MANTIS3D-windows.zip en una carpeta permanente
+   (por ejemplo Documentos\MANTIS3D). No lo ejecutes desde dentro del ZIP.
+2. Abre MANTIS3D.exe
+3. Si Windows SmartScreen aparece: Más información → Ejecutar de todas formas
+   (la app aún no está firmada con un certificado de código).
+
+Login y Upgrade to Pro funcionan igual que en Mac.
+
+Modo profundidad (IA):
+- Con GPU NVIDIA, elige dispositivo "cuda" o "auto".
+- Si no hay NVIDIA, usa CPU (mas lento).
+
+Logs de arranque / errores:
+  %USERPROFILE%\.mantis3d\startup.log
+  %USERPROFILE%\.mantis3d\crash.log

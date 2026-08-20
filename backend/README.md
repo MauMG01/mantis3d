@@ -43,3 +43,7 @@ export MANTIS_API_URL=http://127.0.0.1:8000
 # Desarrollo sin Stripe:
 export MANTIS_PLAN=demo   # o pro
 ```
+
+O en el PC del usuario: `~/.mantis3d/config.json` → `{"api_url": "https://..."}`.
+
+Despliegue en internet: ver **[DEPLOY.md](DEPLOY.md)** (Render + Stripe webhook).

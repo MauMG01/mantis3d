@@ -1,7 +1,55 @@
 # Entorno virtual
 .venv/
+.venv-intel/
 venv/
 env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Modelos y caché de IA
+.cache/
+*.pt
+*.pth
+*.onnx
+
+# macOS
+.DS_Store
+
+# Videos de prueba / salida local
+*.mp4
+*.mov
+*.avi
+*.mkv
+!_codec_test/*.mp4
+
+# Temporales
+*.tmp
+/tmp/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Licencias / backend
+backend/.env
+backend/*.db
+backend/.venv/
+*.db
+mantis_licensing.db
+
+# PyInstaller
+build/
+dist/
+packaging/mantis.ico
+packaging/mantis_api_url.txt
+
 
 # Python
 __pycache__/

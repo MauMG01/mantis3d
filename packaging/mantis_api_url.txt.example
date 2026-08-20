@@ -1,0 +1,5 @@
+# URL pública del backend (sin barra final).
+# Copia esta línea a mantis_api_url.txt antes del build de producción,
+# o usa ~/.mantis3d/config.json en el PC del usuario.
+#
+# https://mantis-licensing.onrender.com

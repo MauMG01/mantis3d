@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+import webbrowser
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -19,13 +20,19 @@ from .i18n import (
 from .licensing import (
     DEMO_MAX_CONVERSIONES,
     LicenciaError,
+    LicensingAPIError,
+    LicensingClient,
     Plan,
+    borrar_tokens,
+    cargar_access_token,
     estado_suscripcion_actual,
+    guardar_tokens,
     registrar_conversion_exitosa,
     resoluciones_para_plan,
     validar_conversion,
 )
 from .preferencias import cargar_idioma, guardar_idioma
+from .runtime_paths import resource_path
 from .procesador import (
     ConversionCancelada,
     ModoEstereo,
@@ -46,13 +53,15 @@ class ConversorGUI(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("MANTIS 3D")
-        self.geometry("520x600")
-        self.minsize(520, 600)
+        self.geometry("520x640")
+        self.minsize(520, 640)
         self.resizable(False, False)
 
         self._idioma = cargar_idioma()
         self._modo_interno = ModoEstereo.PROFUNDIDAD.value
         self._modelo_interno = MODELO_PROFUNDIDAD_DEFECTO
+        self._auth_busy = False
+        self._licensing = LicensingClient()
 
         self.input_path: Path | None = None
         self.output_path: Path | None = None
@@ -89,7 +98,7 @@ class ConversorGUI(tk.Tk):
         frame.pack(fill="both", expand=True, **padding)
         frame.columnconfigure(0, weight=1)
 
-        logo_path = Path(__file__).resolve().parents[1] / "mantis.png"
+        logo_path = resource_path("mantis.png")
         logo_displayed = False
         if logo_path.is_file():
             try:
@@ -101,7 +110,8 @@ class ConversorGUI(tk.Tk):
 
                 if Image is not None and ImageTk is not None:
                     raw_image = Image.open(logo_path)
-                    target_width = 600
+                    # Ancho útil ≈ ventana 520 − padding horizontal
+                    target_width = 496
                     max_height = 160
                     width, height = raw_image.size
                     scale = target_width / width
@@ -115,7 +125,7 @@ class ConversorGUI(tk.Tk):
                     self.logo_image = ImageTk.PhotoImage(resized)
                 else:
                     logo_image = tk.PhotoImage(file=str(logo_path))
-                    max_width = 580
+                    max_width = 496
                     max_height = 140
                     if (
                         logo_image.width() > max_width
@@ -174,16 +184,49 @@ class ConversorGUI(tk.Tk):
         )
         self._label_plan.grid(row=5, column=1, sticky="e", padx=(8, 0))
 
+        account = ttk.Frame(frame)
+        account.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        account.columnconfigure(0, weight=1)
+        account.columnconfigure(1, weight=1)
+
+        self.login_button = ttk.Button(
+            account,
+            text="",
+            command=self._on_login,
+        )
+        self.login_button.grid(row=0, column=0, sticky="ew", padx=(0, 3), pady=(0, 3))
+
+        self.upgrade_button = ttk.Button(
+            account,
+            text="",
+            command=self._on_upgrade,
+        )
+        self.upgrade_button.grid(row=0, column=1, sticky="ew", padx=(3, 0), pady=(0, 3))
+
+        self.logout_button = ttk.Button(
+            account,
+            text="",
+            command=self._on_logout,
+        )
+        self.logout_button.grid(row=1, column=0, sticky="ew", padx=(0, 3))
+
+        self.refresh_plan_button = ttk.Button(
+            account,
+            text="",
+            command=self._on_refresh_plan,
+        )
+        self.refresh_plan_button.grid(row=1, column=1, sticky="ew", padx=(3, 0))
+
         self.advanced_button = ttk.Button(
             frame,
             text="",
             command=self._toggle_advanced,
         )
-        self.advanced_button.grid(row=6, column=0, sticky="w", pady=(16, 0))
+        self.advanced_button.grid(row=7, column=0, sticky="w", pady=(12, 0))
 
         self.advanced_frame = ttk.Frame(frame, relief="groove", borderwidth=1)
         self.advanced_frame.grid(
-            row=7, column=0, columnspan=2, sticky="ew", pady=(8, 0)
+            row=8, column=0, columnspan=2, sticky="ew", pady=(8, 0)
         )
         self.advanced_frame.grid_remove()
 
@@ -225,7 +268,7 @@ class ConversorGUI(tk.Tk):
         self.bind("<Button-1>", self._on_global_click, add="+")
 
         botones_frame = ttk.Frame(frame)
-        botones_frame.grid(row=8, column=0, columnspan=2, pady=(16, 0))
+        botones_frame.grid(row=9, column=0, columnspan=2, pady=(16, 0))
 
         self.convert_button = ttk.Button(
             botones_frame,
@@ -245,7 +288,7 @@ class ConversorGUI(tk.Tk):
         self.cancel_button.pack(side="left")
 
         self._label_progress = ttk.Label(frame, text="")
-        self._label_progress.grid(row=9, column=0, sticky="w", pady=(16, 0))
+        self._label_progress.grid(row=10, column=0, sticky="w", pady=(16, 0))
         self.progress_bar = ttk.Progressbar(
             frame,
             variable=self.progress_value,
@@ -253,7 +296,7 @@ class ConversorGUI(tk.Tk):
             mode="determinate",
             length=360,
         )
-        self.progress_bar.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        self.progress_bar.grid(row=11, column=0, columnspan=2, sticky="ew", pady=(4, 0))
 
         self.progress_label = ttk.Label(
             frame,
@@ -261,11 +304,11 @@ class ConversorGUI(tk.Tk):
             foreground="gray",
         )
         self.progress_label.grid(
-            row=11, column=0, columnspan=2, sticky="w", pady=(4, 0)
+            row=12, column=0, columnspan=2, sticky="w", pady=(4, 0)
         )
 
         footer = ttk.Frame(frame)
-        footer.grid(row=12, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        footer.grid(row=13, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         footer.columnconfigure(0, weight=1)
 
         self.language_button = ttk.Button(
@@ -380,6 +423,10 @@ class ConversorGUI(tk.Tk):
         self.convert_button.config(text=t("convert", lang))
         self.cancel_button.config(text=t("cancel", lang))
         self._label_progress.config(text=t("progress", lang))
+        self.login_button.config(text=t("login", lang))
+        self.upgrade_button.config(text=t("upgrade_pro", lang))
+        self.refresh_plan_button.config(text=t("refresh_plan", lang))
+        self.logout_button.config(text=t("logout", lang))
         self.language_button.config(
             text=t("switch_to_es", lang)
             if lang is Idioma.EN
@@ -415,16 +462,254 @@ class ConversorGUI(tk.Tk):
             self.resolution.set(permitidas[0])
 
         if estado.plan is Plan.PRO:
-            self.plan_label_text.set(t("plan_pro", lang))
+            plan_txt = t("plan_pro", lang)
         else:
-            self.plan_label_text.set(
-                t(
-                    "plan_demo",
-                    lang,
-                    used=estado.conversiones_usadas,
-                    max=DEMO_MAX_CONVERSIONES,
-                )
+            plan_txt = t(
+                "plan_demo",
+                lang,
+                used=estado.conversiones_usadas,
+                max=DEMO_MAX_CONVERSIONES,
             )
+        if estado.email:
+            self.plan_label_text.set(
+                t("plan_signed_in", lang, plan=plan_txt, email=estado.email)
+            )
+        else:
+            self.plan_label_text.set(plan_txt)
+
+        token = cargar_access_token()
+        logged_in = bool(token)
+        api_ok = self._licensing.disponible
+        busy = "disabled" if self._auth_busy else "normal"
+
+        self.login_button.configure(
+            state="disabled" if (logged_in or not api_ok or self._auth_busy) else busy
+        )
+        self.logout_button.configure(
+            state="disabled" if (not logged_in or self._auth_busy) else busy
+        )
+        if estado.plan is Plan.PRO:
+            # En Pro no hay upgrade: solo gestión de facturación si hay sesión.
+            if logged_in:
+                self.upgrade_button.configure(
+                    text=t("manage_billing", lang),
+                    state=busy,
+                )
+                self.upgrade_button.grid()
+            else:
+                self.upgrade_button.grid_remove()
+        else:
+            self.upgrade_button.grid()
+            self.upgrade_button.configure(
+                text=t("upgrade_pro", lang),
+                state="disabled" if (not api_ok or self._auth_busy) else busy,
+            )
+        self.refresh_plan_button.configure(
+            state="disabled" if (not logged_in or self._auth_busy) else busy
+        )
+
+    def _set_auth_busy(self, busy: bool) -> None:
+        self._auth_busy = busy
+        self._refresh_plan_ui()
+
+    def _on_login(self) -> None:
+        lang = self._lang()
+        if not self._licensing.disponible:
+            messagebox.showwarning(
+                t("license_title", lang), t("api_unavailable", lang)
+            )
+            return
+        self._show_auth_dialog()
+
+    def _show_auth_dialog(self) -> None:
+        lang = self._lang()
+        dialog = tk.Toplevel(self)
+        dialog.title(t("account_title", lang))
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        frame = ttk.Frame(dialog, padding=16)
+        frame.grid(row=0, column=0)
+
+        ttk.Label(frame, text=t("email", lang)).grid(row=0, column=0, sticky="w")
+        email_var = tk.StringVar()
+        email_entry = ttk.Entry(frame, textvariable=email_var, width=36)
+        email_entry.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(2, 8))
+
+        ttk.Label(frame, text=t("password", lang)).grid(row=2, column=0, sticky="w")
+        password_var = tk.StringVar()
+        password_entry = ttk.Entry(frame, textvariable=password_var, show="*", width=36)
+        password_entry.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(2, 12))
+
+        status_var = tk.StringVar(value="")
+        status = ttk.Label(frame, textvariable=status_var, foreground="#555555")
+        status.grid(row=5, column=0, columnspan=2, sticky="w", pady=(8, 0))
+
+        def _cerrar() -> None:
+            dialog.grab_release()
+            dialog.destroy()
+
+        def _run_auth(accion: str) -> None:
+            email = email_var.get().strip()
+            password = password_var.get()
+            if not email or not password:
+                status_var.set(t("auth_error", lang, error="Email / password required"))
+                return
+            status_var.set(t("auth_busy", lang))
+            self._set_auth_busy(True)
+
+            def worker() -> None:
+                try:
+                    if accion == "login":
+                        datos = self._licensing.login(email, password)
+                        mensaje = t("login_success", lang, email=email)
+                    else:
+                        datos = self._licensing.register(email, password)
+                        mensaje = t("register_success", lang)
+                    guardar_tokens(
+                        str(datos["access_token"]),
+                        datos.get("refresh_token"),
+                    )
+                    estado = estado_suscripcion_actual(self._licensing)
+
+                    def ok() -> None:
+                        self._estado_licencia = estado
+                        self._set_auth_busy(False)
+                        _cerrar()
+                        messagebox.showinfo(t("account_title", lang), mensaje)
+                        self._refresh_plan_ui()
+
+                    self.after(0, ok)
+                except Exception as error:  # noqa: BLE001
+                    detalle = str(error)[:200]
+
+                    def fail() -> None:
+                        self._set_auth_busy(False)
+                        status_var.set(
+                            t("auth_error", lang, error=detalle)
+                        )
+
+                    self.after(0, fail)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        botones = ttk.Frame(frame)
+        botones.grid(row=4, column=0, columnspan=2, sticky="ew")
+        ttk.Button(
+            botones,
+            text=t("login", lang),
+            command=lambda: _run_auth("login"),
+            width=14,
+        ).pack(side="left")
+        ttk.Button(
+            botones,
+            text=t("register", lang),
+            command=lambda: _run_auth("register"),
+            width=16,
+        ).pack(side="left", padx=(8, 0))
+
+        email_entry.focus_set()
+        dialog.protocol("WM_DELETE_WINDOW", _cerrar)
+        dialog.bind("<Return>", lambda _e: _run_auth("login"))
+
+    def _on_logout(self) -> None:
+        lang = self._lang()
+        borrar_tokens()
+        self._estado_licencia = estado_suscripcion_actual(self._licensing)
+        self._refresh_plan_ui()
+        messagebox.showinfo(t("account_title", lang), t("logout_success", lang))
+
+    def _on_refresh_plan(self) -> None:
+        lang = self._lang()
+        if not cargar_access_token():
+            messagebox.showwarning(
+                t("license_title", lang), t("login_required_upgrade", lang)
+            )
+            return
+        self._set_auth_busy(True)
+
+        def worker() -> None:
+            try:
+                estado = estado_suscripcion_actual(self._licensing)
+
+                def ok() -> None:
+                    self._estado_licencia = estado
+                    self._set_auth_busy(False)
+                    self._refresh_plan_ui()
+
+                self.after(0, ok)
+            except Exception as error:  # noqa: BLE001
+                detalle = str(error)
+
+                def fail() -> None:
+                    self._set_auth_busy(False)
+                    messagebox.showerror(
+                        t("error_title", lang),
+                        t("auth_error", lang, error=detalle),
+                    )
+
+                self.after(0, fail)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_upgrade(self) -> None:
+        lang = self._lang()
+        if not self._licensing.disponible:
+            messagebox.showwarning(
+                t("license_title", lang), t("api_unavailable", lang)
+            )
+            return
+        token = cargar_access_token()
+        if not token:
+            messagebox.showwarning(
+                t("license_title", lang), t("login_required_upgrade", lang)
+            )
+            self._show_auth_dialog()
+            return
+
+        self._set_auth_busy(True)
+        es_pro = self._estado_licencia.plan is Plan.PRO
+
+        def worker() -> None:
+            try:
+                if es_pro:
+                    url = self._licensing.crear_portal(token)
+                    mensaje = t("portal_opened", lang)
+                else:
+                    url = self._licensing.crear_checkout(token)
+                    mensaje = t("upgrade_opened", lang)
+                webbrowser.open(url)
+
+                def ok() -> None:
+                    self._set_auth_busy(False)
+                    messagebox.showinfo(t("license_title", lang), mensaje)
+
+                self.after(0, ok)
+            except LicensingAPIError as error:
+                detalle_api = str(error)
+
+                def fail_api() -> None:
+                    self._set_auth_busy(False)
+                    messagebox.showerror(
+                        t("error_title", lang),
+                        t("auth_error", lang, error=detalle_api),
+                    )
+
+                self.after(0, fail_api)
+            except Exception as error:  # noqa: BLE001
+                detalle = str(error)
+
+                def fail() -> None:
+                    self._set_auth_busy(False)
+                    messagebox.showerror(
+                        t("error_title", lang),
+                        t("auth_error", lang, error=detalle),
+                    )
+
+                self.after(0, fail)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _toggle_language(self) -> None:
         try:
@@ -492,17 +777,17 @@ class ConversorGUI(tk.Tk):
     def _toggle_advanced(self) -> None:
         if self.advanced_frame.winfo_ismapped():
             self._collapse_advanced_options()
-            self.geometry("520x600")
+            self.geometry("520x640")
         else:
             self.advanced_frame.grid()
             self.advanced_button.config(text=t("advanced_hide", self._lang()))
-            self.geometry("520x760")
+            self.geometry("520x780")
 
     def _collapse_advanced_options(self) -> None:
         if self.advanced_frame.winfo_ismapped():
             self.advanced_frame.grid_remove()
             self.advanced_button.config(text=t("advanced_ai_show", self._lang()))
-            self.geometry("520x600")
+            self.geometry("520x640")
 
     def _widget_is_in_advanced_area(self, widget: tk.Widget) -> bool:
         while widget is not None:
@@ -527,6 +812,10 @@ class ConversorGUI(tk.Tk):
             self.cancel_button,
             self.language_button,
             self._browse_button,
+            self.login_button,
+            self.upgrade_button,
+            self.refresh_plan_button,
+            self.logout_button,
         }:
             return
         if self._widget_is_in_advanced_area(widget):

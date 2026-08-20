@@ -1,0 +1,33 @@
+# Blueprint Render: https://render.com/docs/blueprint-spec
+# Importar desde el repo (Root Directory = backend) o crear servicios a mano siguiendo DEPLOY.md
+
+databases:
+  - name: mantis-db
+    plan: free
+    databaseName: mantis
+    user: mantis
+
+services:
+  - type: web
+    name: mantis-licensing
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mantis-db
+          property: connectionString
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_ID_PRO
+        sync: false
+      - key: FRONTEND_SUCCESS_URL
+        sync: false
+      - key: FRONTEND_CANCEL_URL
+        sync: false
