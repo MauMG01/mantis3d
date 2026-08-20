@@ -1,0 +1,34 @@
+# Blueprint Render (raíz del repo). Ver también backend/render.yaml
+# Blueprint Path en Render: render.yaml
+
+databases:
+  - name: mantis-db
+    plan: free
+    databaseName: mantis
+    user: mantis
+
+services:
+  - type: web
+    name: mantis-licensing
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mantis-db
+          property: connectionString
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_ID_PRO
+        sync: false
+      - key: FRONTEND_SUCCESS_URL
+        sync: false
+      - key: FRONTEND_CANCEL_URL
+        sync: false
