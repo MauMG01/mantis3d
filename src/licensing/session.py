@@ -13,7 +13,9 @@ from .policy import Plan
 _SERVICE = "mantis3d"
 _KEY_REFRESH = "refresh_token"
 _KEY_ACCESS = "access_token"
-_ARCHIVO_USO = Path.home() / ".mantis3d" / "usage.json"
+_DIR_MANTIS = Path.home() / ".mantis3d"
+_ARCHIVO_USO = _DIR_MANTIS / "usage.json"
+_ARCHIVO_TOKENS = _DIR_MANTIS / "tokens.json"
 
 
 def _cargar_uso_local() -> dict:
@@ -26,8 +28,37 @@ def _cargar_uso_local() -> dict:
 
 
 def _guardar_uso_local(datos: dict) -> None:
-    _ARCHIVO_USO.parent.mkdir(parents=True, exist_ok=True)
+    _DIR_MANTIS.mkdir(parents=True, exist_ok=True)
     _ARCHIVO_USO.write_text(json.dumps(datos, indent=2) + "\n", encoding="utf-8")
+
+
+def _cargar_tokens_archivo() -> dict[str, str]:
+    if not _ARCHIVO_TOKENS.is_file():
+        return {}
+    try:
+        datos = json.loads(_ARCHIVO_TOKENS.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(datos, dict):
+        return {}
+    return {str(k): str(v) for k, v in datos.items() if v}
+
+
+def _guardar_tokens_archivo(access_token: str, refresh_token: str | None = None) -> None:
+    _DIR_MANTIS.mkdir(parents=True, exist_ok=True)
+    datos = _cargar_tokens_archivo()
+    datos[_KEY_ACCESS] = access_token
+    if refresh_token:
+        datos[_KEY_REFRESH] = refresh_token
+    _ARCHIVO_TOKENS.write_text(json.dumps(datos, indent=2) + "\n", encoding="utf-8")
+
+
+def _borrar_tokens_archivo() -> None:
+    try:
+        if _ARCHIVO_TOKENS.is_file():
+            _ARCHIVO_TOKENS.unlink()
+    except OSError:
+        pass
 
 
 def conversiones_demo_usadas() -> int:
@@ -54,25 +85,49 @@ def plan_override_local() -> Plan | None:
     return None
 
 
+def _usar_keyring() -> bool:
+    """Por defecto no usamos Keychain: en Mac sin firmar pide contraseña en bucle."""
+    import os
+
+    return os.environ.get("MANTIS_USE_KEYRING", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
 def guardar_tokens(access_token: str, refresh_token: str | None = None) -> None:
-    keyring.set_password(_SERVICE, _KEY_ACCESS, access_token)
-    if refresh_token:
-        keyring.set_password(_SERVICE, _KEY_REFRESH, refresh_token)
+    """Guarda tokens en Keychain (dev) o ~/.mantis3d/tokens.json (app empaquetada)."""
+    if _usar_keyring():
+        try:
+            keyring.set_password(_SERVICE, _KEY_ACCESS, access_token)
+            if refresh_token:
+                keyring.set_password(_SERVICE, _KEY_REFRESH, refresh_token)
+            return
+        except Exception:
+            pass
+    _guardar_tokens_archivo(access_token, refresh_token)
 
 
 def cargar_access_token() -> str | None:
-    try:
-        return keyring.get_password(_SERVICE, _KEY_ACCESS)
-    except Exception:
-        return None
+    if _usar_keyring():
+        try:
+            token = keyring.get_password(_SERVICE, _KEY_ACCESS)
+            if token:
+                return token
+        except Exception:
+            pass
+    return _cargar_tokens_archivo().get(_KEY_ACCESS)
 
 
 def borrar_tokens() -> None:
-    for clave in (_KEY_ACCESS, _KEY_REFRESH):
-        try:
-            keyring.delete_password(_SERVICE, clave)
-        except Exception:
-            pass
+    if _usar_keyring():
+        for clave in (_KEY_ACCESS, _KEY_REFRESH):
+            try:
+                keyring.delete_password(_SERVICE, clave)
+            except Exception:
+                pass
+    _borrar_tokens_archivo()
 
 
 def estado_suscripcion_actual(client: LicensingClient | None = None) -> EstadoSuscripcion:
@@ -106,7 +161,12 @@ def estado_suscripcion_actual(client: LicensingClient | None = None) -> EstadoSu
     if token:
         try:
             return client.obtener_suscripcion(token)
-        except LicensingAPIError:
+        except LicensingAPIError as error:
+            detalle = str(error).lower()
+            if "401" in detalle or "unauthorized" in detalle or "not authenticated" in detalle:
+                borrar_tokens()
+        except Exception:
+            # Timeout / red: no tumbar la GUI al arrancar
             pass
 
     return EstadoSuscripcion(

@@ -32,7 +32,7 @@ def api_base_url() -> str | None:
 class LicensingClient:
     """Cliente de la API de suscripciones."""
 
-    def __init__(self, base_url: str | None = None, timeout_s: float = 15.0) -> None:
+    def __init__(self, base_url: str | None = None, timeout_s: float = 45.0) -> None:
         self.base_url = (base_url or api_base_url() or "").rstrip("/")
         self.timeout_s = timeout_s
 

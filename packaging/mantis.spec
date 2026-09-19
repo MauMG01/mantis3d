@@ -18,9 +18,13 @@ APP_NAME = "MANTIS 3D" if IS_DARWIN else "MANTIS3D"
 datas = [
     (str(ROOT / "mantis.png"), "."),
 ]
-_api_url = ROOT / "mantis_api_url.txt"
-if _api_url.is_file():
-    datas.append((str(_api_url), "."))
+for _api_url in (
+    ROOT / "mantis_api_url.txt",
+    ROOT / "packaging" / "mantis_api_url.txt",
+):
+    if _api_url.is_file():
+        datas.append((str(_api_url), "."))
+        break
 binaries = []
 hiddenimports = [
     "PIL",

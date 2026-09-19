@@ -478,7 +478,10 @@ class ConversorGUI(tk.Tk):
             self.plan_label_text.set(plan_txt)
 
         token = cargar_access_token()
-        logged_in = bool(token)
+        # Solo contar sesión si el token sigue siendo usable (API o email conocido).
+        logged_in = bool(token) and (
+            estado.fuente == "api" or bool(estado.email)
+        )
         api_ok = self._licensing.disponible
         busy = "disabled" if self._auth_busy else "normal"
 
@@ -691,6 +694,18 @@ class ConversorGUI(tk.Tk):
 
                 def fail_api() -> None:
                     self._set_auth_busy(False)
+                    if "401" in detalle_api or "Not authenticated" in detalle_api:
+                        borrar_tokens()
+                        self._estado_licencia = estado_suscripcion_actual(
+                            self._licensing
+                        )
+                        self._refresh_plan_ui()
+                        messagebox.showwarning(
+                            t("license_title", lang),
+                            t("login_required_upgrade", lang),
+                        )
+                        self._show_auth_dialog()
+                        return
                     messagebox.showerror(
                         t("error_title", lang),
                         t("auth_error", lang, error=detalle_api),

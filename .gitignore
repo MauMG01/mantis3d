@@ -49,6 +49,7 @@ build/
 dist/
 packaging/mantis.ico
 packaging/mantis_api_url.txt
+mantis_api_url.txt
 
 
 # Python
