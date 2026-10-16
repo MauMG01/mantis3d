@@ -19,6 +19,7 @@ from .i18n import (
 )
 from .licensing import (
     DEMO_MAX_CONVERSIONES,
+    EstadoSuscripcion,
     LicenciaError,
     LicensingAPIError,
     LicensingClient,
@@ -56,6 +57,7 @@ class ConversorGUI(tk.Tk):
         self.geometry("520x640")
         self.minsize(520, 640)
         self.resizable(False, False)
+        self._set_window_icon()
 
         self._idioma = cargar_idioma()
         self._modo_interno = ModoEstereo.PROFUNDIDAD.value
@@ -85,11 +87,40 @@ class ConversorGUI(tk.Tk):
         self.total_frames: int = 0
         self._cancel_event = threading.Event()
         self._conversion_thread: threading.Thread | None = None
-        self._estado_licencia = estado_suscripcion_actual()
+        # No bloquear el arranque con la API (Render cold start puede tardar).
+        self._estado_licencia = EstadoSuscripcion(
+            plan=Plan.DEMO,
+            conversiones_usadas=0,
+            fuente="local",
+        )
 
         self._build_interface()
         self._apply_language()
         self._refresh_plan_ui()
+        self.after(50, self._cargar_licencia_en_fondo)
+
+    def _set_window_icon(self) -> None:
+        """Icono de ventana / Dock a partir de la cara MANTIS."""
+        candidates = (
+            resource_path("mantis_icon.png"),
+            resource_path("packaging", "mantis_icon.png"),
+            Path(__file__).resolve().parents[1] / "packaging" / "mantis_icon.png",
+        )
+        icon_path = next((p for p in candidates if p.is_file()), None)
+        if icon_path is None:
+            return
+        try:
+            from PIL import Image, ImageTk
+
+            raw = Image.open(icon_path).convert("RGBA")
+            raw.thumbnail((256, 256), Image.Resampling.LANCZOS)
+            self._window_icon = ImageTk.PhotoImage(raw)
+            self.iconphoto(True, self._window_icon)
+        except Exception:  # noqa: BLE001
+            try:
+                self.iconphoto(True, tk.PhotoImage(file=str(icon_path)))
+            except Exception:  # noqa: BLE001
+                pass
 
     def _build_interface(self) -> None:
         padding = {"padx": 12, "pady": 8}
@@ -515,6 +546,28 @@ class ConversorGUI(tk.Tk):
         self._auth_busy = busy
         self._refresh_plan_ui()
 
+    def _cargar_licencia_en_fondo(self) -> None:
+        """Consulta el plan sin congelar la ventana al arrancar."""
+        client = self._licensing.con_timeout(8.0)
+
+        def worker() -> None:
+            try:
+                estado = estado_suscripcion_actual(client)
+            except Exception:  # noqa: BLE001
+                estado = EstadoSuscripcion(
+                    plan=Plan.DEMO,
+                    conversiones_usadas=0,
+                    fuente="local",
+                )
+
+            def ok() -> None:
+                self._estado_licencia = estado
+                self._refresh_plan_ui()
+
+            self.after(0, ok)
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _on_login(self) -> None:
         lang = self._lang()
         if not self._licensing.disponible:
@@ -612,9 +665,153 @@ class ConversorGUI(tk.Tk):
             width=16,
         ).pack(side="left", padx=(8, 0))
 
+        def _abrir_reset() -> None:
+            email = email_var.get().strip()
+            _cerrar()
+            self._show_reset_password_dialog(email)
+
+        ttk.Button(
+            frame,
+            text=t("forgot_password", lang),
+            command=_abrir_reset,
+        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(12, 0))
+
         email_entry.focus_set()
         dialog.protocol("WM_DELETE_WINDOW", _cerrar)
         dialog.bind("<Return>", lambda _e: _run_auth("login"))
+
+    def _show_reset_password_dialog(self, email_inicial: str = "") -> None:
+        lang = self._lang()
+        dialog = tk.Toplevel(self)
+        dialog.title(t("reset_title", lang))
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        frame = ttk.Frame(dialog, padding=16)
+        frame.grid(row=0, column=0)
+
+        ttk.Label(frame, text=t("email", lang)).grid(row=0, column=0, sticky="w")
+        email_var = tk.StringVar(value=email_inicial)
+        email_entry = ttk.Entry(frame, textvariable=email_var, width=36)
+        email_entry.grid(row=1, column=0, sticky="ew", pady=(2, 8))
+
+        ttk.Button(
+            frame,
+            text=t("reset_send_code", lang),
+            command=lambda: _enviar_codigo(),
+        ).grid(row=2, column=0, sticky="w", pady=(0, 10))
+
+        ttk.Label(frame, text=t("reset_code", lang)).grid(row=3, column=0, sticky="w")
+        code_var = tk.StringVar()
+        code_entry = ttk.Entry(frame, textvariable=code_var, width=36)
+        code_entry.grid(row=4, column=0, sticky="ew", pady=(2, 8))
+
+        ttk.Label(frame, text=t("reset_new_password", lang)).grid(
+            row=5, column=0, sticky="w"
+        )
+        new_var = tk.StringVar()
+        ttk.Entry(frame, textvariable=new_var, show="*", width=36).grid(
+            row=6, column=0, sticky="ew", pady=(2, 8)
+        )
+
+        ttk.Label(frame, text=t("reset_confirm_password", lang)).grid(
+            row=7, column=0, sticky="w"
+        )
+        confirm_var = tk.StringVar()
+        ttk.Entry(frame, textvariable=confirm_var, show="*", width=36).grid(
+            row=8, column=0, sticky="ew", pady=(2, 12)
+        )
+
+        status_var = tk.StringVar(value="")
+        ttk.Label(frame, textvariable=status_var, foreground="#555555", wraplength=320).grid(
+            row=10, column=0, sticky="w", pady=(8, 0)
+        )
+
+        def _cerrar() -> None:
+            dialog.grab_release()
+            dialog.destroy()
+
+        def _enviar_codigo() -> None:
+            email = email_var.get().strip()
+            if not email:
+                status_var.set(t("auth_error", lang, error="Email required"))
+                return
+            status_var.set(t("auth_busy", lang))
+            self._set_auth_busy(True)
+
+            def worker() -> None:
+                try:
+                    mensaje = self._licensing.forgot_password(email)
+
+                    def ok() -> None:
+                        self._set_auth_busy(False)
+                        status_var.set(mensaje or t("reset_code_sent", lang))
+                        code_entry.focus_set()
+
+                    self.after(0, ok)
+                except Exception as error:  # noqa: BLE001
+                    detalle = str(error)[:200]
+
+                    def fail() -> None:
+                        self._set_auth_busy(False)
+                        status_var.set(t("auth_error", lang, error=detalle))
+
+                    self.after(0, fail)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def _actualizar() -> None:
+            email = email_var.get().strip()
+            code = code_var.get().strip()
+            nueva = new_var.get()
+            confirm = confirm_var.get()
+            if not email or not code or not nueva:
+                status_var.set(
+                    t("auth_error", lang, error="Email / code / password required")
+                )
+                return
+            if len(nueva) < 8:
+                status_var.set(t("reset_password_short", lang))
+                return
+            if nueva != confirm:
+                status_var.set(t("reset_password_mismatch", lang))
+                return
+            status_var.set(t("auth_busy", lang))
+            self._set_auth_busy(True)
+
+            def worker() -> None:
+                try:
+                    self._licensing.reset_password(email, code, nueva)
+
+                    def ok() -> None:
+                        self._set_auth_busy(False)
+                        _cerrar()
+                        messagebox.showinfo(
+                            t("reset_title", lang), t("reset_success", lang)
+                        )
+                        self._show_auth_dialog()
+
+                    self.after(0, ok)
+                except Exception as error:  # noqa: BLE001
+                    detalle = str(error)[:200]
+
+                    def fail() -> None:
+                        self._set_auth_busy(False)
+                        status_var.set(t("auth_error", lang, error=detalle))
+
+                    self.after(0, fail)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        ttk.Button(
+            frame,
+            text=t("reset_submit", lang),
+            command=_actualizar,
+        ).grid(row=9, column=0, sticky="w")
+
+        email_entry.focus_set()
+        dialog.protocol("WM_DELETE_WINDOW", _cerrar)
 
     def _on_logout(self) -> None:
         lang = self._lang()

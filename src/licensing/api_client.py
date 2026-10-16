@@ -32,9 +32,17 @@ def api_base_url() -> str | None:
 class LicensingClient:
     """Cliente de la API de suscripciones."""
 
-    def __init__(self, base_url: str | None = None, timeout_s: float = 45.0) -> None:
+    def __init__(
+        self,
+        base_url: str | None = None,
+        timeout_s: float = 45.0,
+    ) -> None:
         self.base_url = (base_url or api_base_url() or "").rstrip("/")
         self.timeout_s = timeout_s
+
+    def con_timeout(self, timeout_s: float) -> "LicensingClient":
+        """Copia ligera con otro timeout (p. ej. arranque rápido)."""
+        return LicensingClient(base_url=self.base_url, timeout_s=timeout_s)
 
     @property
     def disponible(self) -> bool:
@@ -69,6 +77,38 @@ class LicensingClient:
         if respuesta.status_code >= 400:
             raise LicensingAPIError(respuesta.text)
         return respuesta.json()
+
+    def forgot_password(self, email: str) -> str:
+        """Solicita un código de recuperación por correo. Devuelve el mensaje del servidor."""
+        if not self.disponible:
+            raise LicensingAPIError("MANTIS_API_URL is not configured.")
+        with httpx.Client(timeout=self.timeout_s) as client:
+            respuesta = client.post(
+                f"{self.base_url}/auth/forgot-password",
+                json={"email": email},
+            )
+        if respuesta.status_code >= 400:
+            raise LicensingAPIError(respuesta.text)
+        datos = respuesta.json()
+        return str(datos.get("message") or "OK")
+
+    def reset_password(self, email: str, code: str, new_password: str) -> str:
+        """Restablece la contraseña con el código recibido por correo."""
+        if not self.disponible:
+            raise LicensingAPIError("MANTIS_API_URL is not configured.")
+        with httpx.Client(timeout=self.timeout_s) as client:
+            respuesta = client.post(
+                f"{self.base_url}/auth/reset-password",
+                json={
+                    "email": email,
+                    "code": code,
+                    "new_password": new_password,
+                },
+            )
+        if respuesta.status_code >= 400:
+            raise LicensingAPIError(respuesta.text)
+        datos = respuesta.json()
+        return str(datos.get("message") or "OK")
 
     def obtener_suscripcion(self, token: str) -> EstadoSuscripcion:
         if not self.disponible:

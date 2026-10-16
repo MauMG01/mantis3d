@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     frontend_success_url: str = "https://example.com/success"
     frontend_cancel_url: str = "https://example.com/cancel"
 
+    # Email (Resend) — recuperación de contraseña
+    resend_api_key: str = ""
+    email_from: str = "MANTIS 3D <onboarding@resend.dev>"
+    reset_code_expire_minutes: int = 15
+
     @field_validator("database_url", mode="before")
     @classmethod
     def normalize_db_url(cls, value: str) -> str:

@@ -53,6 +53,20 @@ Variables de entorno (Environment):
 | `STRIPE_WEBHOOK_SECRET` | Lo creas en el paso 3 |
 | `FRONTEND_SUCCESS_URL` | `https://TU-SERVICIO.onrender.com/health` |
 | `FRONTEND_CANCEL_URL` | `https://TU-SERVICIO.onrender.com/health` |
+| `RESEND_API_KEY` | API key de [resend.com](https://resend.com) (recuperar contraseña) |
+| `EMAIL_FROM` | Remitente verificado, p. ej. `MANTIS 3D <noreply@tudominio.com>` |
+| `RESET_CODE_EXPIRE_MINUTES` | Opcional (por defecto `15`) |
+
+Sin `RESEND_API_KEY` el código de reset solo aparece en los **logs** de Render (útil en pruebas locales; en producción configúralo).
+
+### Recuperar contraseña (flujo en la app)
+
+1. Login → **¿Olvidaste tu contraseña?**
+2. Email → **Enviar código**
+3. El usuario recibe un código de 6 dígitos
+4. Introduce código + nueva contraseña → **Actualizar contraseña**
+
+Endpoints: `POST /auth/forgot-password` y `POST /auth/reset-password`.
 
 Deploy. Cuando esté **Live**, prueba:
 

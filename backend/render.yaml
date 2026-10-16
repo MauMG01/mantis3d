@@ -31,3 +31,9 @@ services:
         sync: false
       - key: FRONTEND_CANCEL_URL
         sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: RESET_CODE_EXPIRE_MINUTES
+        value: "15"
