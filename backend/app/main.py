@@ -10,7 +10,7 @@ from .routers import auth, billing, subscription
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+app = FastAPI(title=settings.app_name, version="0.2.0")
 app.include_router(auth.router)
 app.include_router(subscription.router)
 app.include_router(billing.router)
@@ -18,4 +18,8 @@ app.include_router(billing.router)
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "mantis-licensing"}
+    return {
+        "status": "ok",
+        "service": "mantis-licensing",
+        "version": "0.2.0",
+    }

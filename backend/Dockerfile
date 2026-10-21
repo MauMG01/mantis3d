@@ -1,5 +1,8 @@
 FROM python:3.12-slim
 
+# Bust cache when app code changes materially (password reset, etc.)
+ARG MANTIS_API_BUILD=0.2.0
+
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
