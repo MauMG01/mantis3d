@@ -7,9 +7,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _normalize_database_url(url: str) -> str:
-    # Render/Heroku entregan postgres://; SQLAlchemy 2 prefiere postgresql://
+    """
+    Normaliza la URL de Postgres para el driver que instalamos (psycopg2-binary).
+
+    Render/Heroku entregan ``postgres://`` o ``postgresql://``. SQLAlchemy reciente
+    puede resolver ``postgresql://`` a ``psycopg`` (v3) y fallar con
+    ``ModuleNotFoundError: No module named 'psycopg'``.
+    """
     if url.startswith("postgres://"):
-        return "postgresql://" + url[len("postgres://") :]
+        url = "postgresql://" + url[len("postgres://") :]
+
+    if url.startswith("postgresql+psycopg2://"):
+        return url
+    if url.startswith("postgresql+psycopg://"):
+        return "postgresql+psycopg2://" + url[len("postgresql+psycopg://") :]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg2://" + url[len("postgresql://") :]
     return url
 
 
