@@ -37,17 +37,8 @@ if ($HasNvidia) {
     Write-Host "==> Sin NVIDIA en PATH: el build usara PyTorch CPU."
 }
 
-Write-Host "==> Generando icono Windows..."
-python -c @"
-from pathlib import Path
-from PIL import Image
-src = Path('mantis.png')
-dst = Path('packaging/mantis.ico')
-im = Image.open(src).convert('RGBA')
-im.thumbnail((256, 256))
-im.save(dst, sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
-print('icono:', dst)
-"@
+Write-Host "==> Generando icono de app (cara MANTIS → PNG/ICO)..."
+python scripts/make_app_icon.py
 
 Write-Host "==> Limpiando builds anteriores..."
 if (Test-Path "build") { Remove-Item -Recurse -Force "build" }

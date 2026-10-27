@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import keyring
-
 from .api_client import EstadoSuscripcion, LicensingAPIError, LicensingClient
 from .policy import Plan
 
@@ -100,6 +98,8 @@ def guardar_tokens(access_token: str, refresh_token: str | None = None) -> None:
     """Guarda tokens en Keychain (dev) o ~/.mantis3d/tokens.json (app empaquetada)."""
     if _usar_keyring():
         try:
+            import keyring
+
             keyring.set_password(_SERVICE, _KEY_ACCESS, access_token)
             if refresh_token:
                 keyring.set_password(_SERVICE, _KEY_REFRESH, refresh_token)
@@ -112,6 +112,8 @@ def guardar_tokens(access_token: str, refresh_token: str | None = None) -> None:
 def cargar_access_token() -> str | None:
     if _usar_keyring():
         try:
+            import keyring
+
             token = keyring.get_password(_SERVICE, _KEY_ACCESS)
             if token:
                 return token
@@ -122,11 +124,16 @@ def cargar_access_token() -> str | None:
 
 def borrar_tokens() -> None:
     if _usar_keyring():
-        for clave in (_KEY_ACCESS, _KEY_REFRESH):
-            try:
-                keyring.delete_password(_SERVICE, clave)
-            except Exception:
-                pass
+        try:
+            import keyring
+
+            for clave in (_KEY_ACCESS, _KEY_REFRESH):
+                try:
+                    keyring.delete_password(_SERVICE, clave)
+                except Exception:
+                    pass
+        except Exception:
+            pass
     _borrar_tokens_archivo()
 
 

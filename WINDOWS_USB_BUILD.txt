@@ -1,0 +1,59 @@
+MANTIS 3D — Rebuild Windows (USB)
+=================================
+
+Contenido: código fuente con el fix de login (tokens en disco, no Keychain),
+scripts de empaquetado y API URL de producción.
+
+API Live (ya incluida en packaging/mantis_api_url.txt):
+  https://mantis-licensing.onrender.com
+
+------------------------------------------------
+Requisitos en la PC Windows
+------------------------------------------------
+1. Python 3.12 (64-bit) desde python.org
+   - Marca "Add python.exe to PATH"
+2. Git opcional (no hace falta si usas este ZIP)
+3. Espacio libre: ~10–15 GB (PyTorch + build)
+4. PowerShell
+
+------------------------------------------------
+Pasos
+------------------------------------------------
+1. Copia esta carpeta desde la USB a un disco local, por ejemplo:
+   C:\dev\conversor3D
+
+2. Abre PowerShell en esa carpeta:
+   cd C:\dev\conversor3D
+
+3. Si PowerShell bloquea scripts:
+   Set-ExecutionPolicy -Scope Process Bypass
+
+4. Ejecuta el build:
+   .\scripts\build_windows.ps1
+
+5. Al terminar debe existir:
+   dist\MANTIS3D-windows.zip
+   dist\MANTIS3D\MANTIS3D.exe
+
+6. Prueba: descomprime el ZIP, ejecuta MANTIS3D.exe
+   - Primera vez: SmartScreen → Más información → Ejecutar de todas formas
+   - Login / Register → Mejorar a Pro (Stripe Live)
+
+------------------------------------------------
+Texto para pegar en Cursor (Windows)
+------------------------------------------------
+Usa esta carpeta como workspace (ya trae el fix de login).
+
+1. Confirma que packaging\mantis_api_url.txt diga:
+   https://mantis-licensing.onrender.com
+2. Ejecuta: .\scripts\build_windows.ps1
+3. Si falla, muestra el error completo del final del log.
+4. Al terminar, dime la ruta y tamaño de dist\MANTIS3D-windows.zip
+
+------------------------------------------------
+Notas
+------------------------------------------------
+- No copies .venv desde Mac: el script crea .venv en Windows.
+- Si el build falló antes por falta de git pull, este ZIP ya incluye
+  session.py / gui.py / api_client.py corregidos.
+- El backend (Render) no se recompila aquí; solo la app de escritorio.

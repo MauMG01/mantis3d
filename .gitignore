@@ -47,9 +47,9 @@ mantis_licensing.db
 # PyInstaller
 build/
 dist/
-packaging/mantis.ico
 packaging/mantis_api_url.txt
 mantis_api_url.txt
+# Iconos de app: packaging/mantis_icon.png, mantis.ico, mantis.icns (scripts/make_app_icon.py)
 
 
 # Python

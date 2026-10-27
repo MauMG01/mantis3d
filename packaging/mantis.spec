@@ -18,6 +18,9 @@ APP_NAME = "MANTIS 3D" if IS_DARWIN else "MANTIS3D"
 datas = [
     (str(ROOT / "mantis.png"), "."),
 ]
+_icon_png = ROOT / "packaging" / "mantis_icon.png"
+if _icon_png.is_file():
+    datas.append((str(_icon_png), "."))
 for _api_url in (
     ROOT / "mantis_api_url.txt",
     ROOT / "packaging" / "mantis_api_url.txt",
@@ -61,6 +64,8 @@ for pkg in ("torch", "torchvision", "transformers", "timm", "accelerate"):
 
 icon_path = ROOT / "packaging" / "mantis.ico"
 icon = str(icon_path) if icon_path.is_file() else None
+icns_path = ROOT / "packaging" / "mantis.icns"
+bundle_icon = str(icns_path) if icns_path.is_file() else None
 
 a = Analysis(
     [str(ROOT / "packaging" / "run_mantis.py")],
@@ -121,7 +126,7 @@ if IS_DARWIN:
     app = BUNDLE(
         coll,
         name="MANTIS 3D.app",
-        icon=None,
+        icon=bundle_icon,
         bundle_identifier="com.mantis3d.app",
         info_plist={
             "CFBundleName": "MANTIS 3D",

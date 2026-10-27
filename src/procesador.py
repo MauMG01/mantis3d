@@ -95,17 +95,60 @@ def escalar_fotograma_2d(
     frame: np.ndarray,
     ancho_ojo: int,
     alto_ojo: int,
+    *,
+    conservar_proporcion: bool = False,
+    color_fondo: tuple[int, int, int] = (0, 0, 0),
 ) -> np.ndarray:
-    """Escala el video 2D al tamaño de un ojo antes de generar el par estéreo."""
+    """
+    Escala el video/imagen 2D al tamaño de un ojo antes de generar el par estéreo.
+
+    Con ``conservar_proporcion=True`` encaja el contenido sin estirar (letterbox /
+    pillarbox) y rellena el resto con ``color_fondo``.
+    """
     alto, ancho = frame.shape[:2]
     if ancho == ancho_ojo and alto == alto_ojo:
         return frame
 
-    return cv2.resize(
+    if not conservar_proporcion:
+        return cv2.resize(
+            frame,
+            (ancho_ojo, alto_ojo),
+            interpolation=INTERPOLACION_ESCALADO,
+        )
+
+    if ancho <= 0 or alto <= 0:
+        return np.full((alto_ojo, ancho_ojo, 3), color_fondo, dtype=frame.dtype)
+
+    scale = min(ancho_ojo / ancho, alto_ojo / alto)
+    nuevo_w = max(1, int(round(ancho * scale)))
+    nuevo_h = max(1, int(round(alto * scale)))
+    redimensionado = cv2.resize(
         frame,
-        (ancho_ojo, alto_ojo),
+        (nuevo_w, nuevo_h),
         interpolation=INTERPOLACION_ESCALADO,
     )
+    canvas = np.full((alto_ojo, ancho_ojo, 3), color_fondo, dtype=frame.dtype)
+    x0 = (ancho_ojo - nuevo_w) // 2
+    y0 = (alto_ojo - nuevo_h) // 2
+    canvas[y0 : y0 + nuevo_h, x0 : x0 + nuevo_w] = redimensionado
+    return canvas
+
+
+def _ancho_contenido_ojo(
+    ancho_entrada: int,
+    alto_entrada: int,
+    dimensiones: DimensionesSBS,
+    *,
+    conservar_proporcion: bool,
+) -> int:
+    """Ancho útil del contenido dentro de un ojo (tras letterbox si aplica)."""
+    if not conservar_proporcion or ancho_entrada <= 0 or alto_entrada <= 0:
+        return dimensiones.ancho_ojo
+    scale = min(
+        dimensiones.ancho_ojo / ancho_entrada,
+        dimensiones.alto_ojo / alto_entrada,
+    )
+    return max(1, int(round(ancho_entrada * scale)))
 
 
 def _offset_escalado(offset: int, ancho_entrada: int, ancho_ojo: int) -> int:
@@ -144,10 +187,24 @@ def procesar_fotograma_sbs(
     offset: int,
     dimensiones: DimensionesSBS,
     ancho_entrada: int,
+    *,
+    conservar_proporcion: bool = False,
 ) -> np.ndarray:
     """Escala el fotograma 2D y aplica la separación estéreo en formato SBS."""
-    vista_2d = escalar_fotograma_2d(frame, dimensiones.ancho_ojo, dimensiones.alto_ojo)
-    offset_ojo = _offset_escalado(offset, ancho_entrada, dimensiones.ancho_ojo)
+    vista_2d = escalar_fotograma_2d(
+        frame,
+        dimensiones.ancho_ojo,
+        dimensiones.alto_ojo,
+        conservar_proporcion=conservar_proporcion,
+    )
+    alto_entrada = frame.shape[0]
+    ancho_ref = _ancho_contenido_ojo(
+        ancho_entrada,
+        alto_entrada,
+        dimensiones,
+        conservar_proporcion=conservar_proporcion,
+    )
+    offset_ojo = _offset_escalado(offset, ancho_entrada, ancho_ref)
     return frame_a_sbs(vista_2d, offset_ojo)
 
 
@@ -227,6 +284,21 @@ def frame_a_sbs_por_profundidad(
     return np.hstack((frame, ojo_derecho))
 
 
+def _mascara_contenido_letterbox(
+    ancho_entrada: int,
+    alto_entrada: int,
+    ancho_ojo: int,
+    alto_ojo: int,
+) -> tuple[int, int, int, int]:
+    """Devuelve (x0, y0, w, h) del contenido centrado sin estirar."""
+    scale = min(ancho_ojo / ancho_entrada, alto_ojo / alto_entrada)
+    w = max(1, int(round(ancho_entrada * scale)))
+    h = max(1, int(round(alto_entrada * scale)))
+    x0 = (ancho_ojo - w) // 2
+    y0 = (alto_ojo - h) // 2
+    return x0, y0, w, h
+
+
 def procesar_fotograma_sbs_profundidad(
     frame: np.ndarray,
     estimador: EstimadorProfundidad,
@@ -234,14 +306,34 @@ def procesar_fotograma_sbs_profundidad(
     dimensiones: DimensionesSBS,
     *,
     intensidad: float = 1.0,
+    conservar_proporcion: bool = False,
 ) -> np.ndarray:
     """Escala el fotograma, estima profundidad y genera SBS con disparidad variable."""
-    vista_2d = escalar_fotograma_2d(frame, dimensiones.ancho_ojo, dimensiones.alto_ojo)
-    proximidad = estimador.estimar_proximidad(
+    vista_2d = escalar_fotograma_2d(
         frame,
         dimensiones.ancho_ojo,
         dimensiones.alto_ojo,
+        conservar_proporcion=conservar_proporcion,
     )
+    # Estimar sobre la vista ya ajustada para que el mapa coincida con letterbox.
+    proximidad = estimador.estimar_proximidad(
+        vista_2d,
+        dimensiones.ancho_ojo,
+        dimensiones.alto_ojo,
+    )
+    # Barras negras del letterbox: sin disparidad (evita aplanar el 3D en cuadradas).
+    if conservar_proporcion:
+        alto_e, ancho_e = frame.shape[:2]
+        if (ancho_e, alto_e) != (dimensiones.ancho_ojo, dimensiones.alto_ojo):
+            x0, y0, w, h = _mascara_contenido_letterbox(
+                ancho_e,
+                alto_e,
+                dimensiones.ancho_ojo,
+                dimensiones.alto_ojo,
+            )
+            mascara = np.zeros_like(proximidad)
+            mascara[y0 : y0 + h, x0 : x0 + w] = 1.0
+            proximidad = proximidad * mascara
     return frame_a_sbs_por_profundidad(
         vista_2d,
         proximidad,
@@ -456,6 +548,7 @@ def convertir_video_a_sbs(
     callback_progreso: callable[[int, int, str], None] | None = None,
     cancelar: Callable[[], bool] | None = None,
     max_segundos: float | None = None,
+    conservar_proporcion: bool = True,
 ) -> dict[str, int | float | str | bool]:
     """
     Lee un video 2D y escribe uno SBS.
@@ -471,7 +564,10 @@ def convertir_video_a_sbs(
 
     Si ``max_segundos`` se indica (p. ej. Demo = 60), se procesan como máximo
     esos segundos de video.
-    
+
+    Con ``conservar_proporcion=True`` (por defecto) no estira el contenido al
+    preset SBS: letterbox / pillarbox con barras negras.
+
     Si ``callback_progreso`` se proporciona, se llama con (fotograma_actual, total_fotogramas)
     cada vez que se procesa un fotograma.
     """
@@ -575,9 +671,16 @@ def convertir_video_a_sbs(
                     float(offset_ojo),
                     dimensiones,
                     intensidad=intensidad_profundidad,
+                    conservar_proporcion=conservar_proporcion,
                 )
             else:
-                sbs = procesar_fotograma_sbs(frame, offset, dimensiones, ancho)
+                sbs = procesar_fotograma_sbs(
+                    frame,
+                    offset,
+                    dimensiones,
+                    ancho,
+                    conservar_proporcion=conservar_proporcion,
+                )
             escritor.write(sbs)
             fotograma_idx += 1
 
@@ -653,6 +756,7 @@ def convertir_video_a_sbs(
             2,
         ),
         "resolucion": resolucion.value,
+        "conservar_proporcion": conservar_proporcion,
         "modo": modo.value,
         "modelo_profundidad": (
             estimador.modelo.value if estimador is not None else None

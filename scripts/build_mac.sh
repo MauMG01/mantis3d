@@ -24,6 +24,9 @@ pip install -q "opencv-python>=4.8.0,<4.11"
 echo "==> Instalando PyInstaller..."
 pip install -q "pyinstaller>=6.0"
 
+echo "==> Generando icono de app (cara MANTIS → PNG/ICO/ICNS)..."
+python scripts/make_app_icon.py
+
 echo "==> Limpiando builds anteriores..."
 rm -rf build dist/MANTIS\ 3D dist/MANTIS\ 3D.app dist/MANTIS3D.dmg
 

@@ -70,6 +70,7 @@ class ConversorGUI(tk.Tk):
         self.offset_value = tk.IntVar(value=OFFSET_PROFUNDIDAD_DEFECTO)
         self.offset_manual = tk.BooleanVar(value=True)
         self.codificar_final = tk.BooleanVar(value=True)
+        self.conservar_proporcion = tk.BooleanVar(value=True)
         self.resolution = tk.StringVar(value=ResolucionSalida.SBS_1080.value)
         self.stereo_mode = tk.StringVar(
             value=modo_mostrar(self._modo_interno, self._idioma)
@@ -433,7 +434,14 @@ class ConversorGUI(tk.Tk):
             text="",
             variable=self.codificar_final,
         )
-        self._chk_h264.grid(row=13, column=0, sticky="w", padx=8, pady=(0, 10))
+        self._chk_h264.grid(row=13, column=0, sticky="w", padx=8, pady=(0, 6))
+
+        self._chk_proporcion = ttk.Checkbutton(
+            parent,
+            text="",
+            variable=self.conservar_proporcion,
+        )
+        self._chk_proporcion.grid(row=14, column=0, sticky="w", padx=8, pady=(0, 10))
 
         self._on_offset_toggle()
 
@@ -471,6 +479,7 @@ class ConversorGUI(tk.Tk):
         self._label_inference.config(text=t("inference", lang))
         self._label_stereo_mode.config(text=t("stereo_mode", lang))
         self._chk_h264.config(text=t("h264_encode", lang))
+        self._chk_proporcion.config(text=t("keep_aspect", lang))
 
         self.model_combo.configure(
             values=[etiqueta_modelo(m, lang) for m in ModeloProfundidad]
@@ -1186,6 +1195,7 @@ class ConversorGUI(tk.Tk):
                 intensidad_profundidad=self.intensity.get(),
                 dispositivo_profundidad=dispositivo,
                 codificar_final=self.codificar_final.get(),
+                conservar_proporcion=bool(self.conservar_proporcion.get()),
                 mostrar_progreso=False,
                 callback_progreso=progress_callback,
                 cancelar=self._cancel_event.is_set,

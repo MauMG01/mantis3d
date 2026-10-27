@@ -109,16 +109,37 @@ def parsear_argumentos(argv: list[str] | None = None) -> argparse.Namespace:
         help="Abrir la interfaz gráfica para seleccionar el video y opciones.",
     )
     parser.add_argument(
+        "--images",
+        action="store_true",
+        help="Abrir MANTIS IMAGE 3D (galería: imágenes 2D → SBS 3D al vuelo).",
+    )
+    parser.add_argument(
         "--sin-codificacion-final",
         action="store_false",
         dest="codificar_final",
         help="Omitir la codificación final H.264 compatible cuando se genera MP4.",
     )
+    parser.add_argument(
+        "--estirar",
+        action="store_false",
+        dest="conservar_proporcion",
+        help=(
+            "Estirar el video al preset SBS (comportamiento antiguo). "
+            "Por defecto se conservan proporciones con letterbox."
+        ),
+    )
+    parser.set_defaults(conservar_proporcion=True)
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parsear_argumentos(argv)
+    if args.images:
+        from .image_sbs_gui import main as images_main
+
+        images_main()
+        return 0
+
     if args.gui:
         from .gui import main as gui_main
 
@@ -126,7 +147,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.entrada is None:
-        print("Error: se requiere -i/--entrada cuando no se usa --gui.", file=sys.stderr)
+        print(
+            "Error: se requiere -i/--entrada cuando no se usa --gui ni --images.",
+            file=sys.stderr,
+        )
         return 1
 
     entrada = args.entrada.resolve()
@@ -179,6 +203,7 @@ def main(argv: list[str] | None = None) -> int:
             dispositivo_profundidad=dispositivo,
             codificar_final=args.codificar_final,
             max_segundos=politica.max_segundos,
+            conservar_proporcion=args.conservar_proporcion,
         )
         registrar_conversion_exitosa(estado)
     except ConversionCancelada:
