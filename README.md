@@ -21,7 +21,19 @@ pip install -r requirements-licensing.txt   # auth cliente (httpx, keyring, JWT)
 pip install -r requirements-depth.txt       # solo para modo profundidad (IA)
 ```
 
-## Instaladores
+## Descargas oficiales (v0.2.0)
+
+| Plataforma | URL |
+|------------|-----|
+| macOS Apple Silicon | https://github.com/MauMG01/mantis3d/releases/download/v0.2.0/MANTIS3D.dmg |
+| macOS Intel | https://github.com/MauMG01/mantis3d/releases/download/v0.2.0/MANTIS3D-intel.dmg |
+| Windows 64-bit | https://pub-707e69a2701543ab9d2c32bc3098047a.r2.dev/MANTIS3D-windows.zip |
+
+Mac = **GitHub Releases** · Windows = **Cloudflare R2** (público). Ya no usamos Google Drive.
+
+Sitio: https://frolicking-babka-669c54.netlify.app · Release: https://github.com/MauMG01/mantis3d/releases/tag/v0.2.0
+
+## Generar instaladores (desarrollo)
 
 | Plataforma | Cómo generar | Resultado |
 |------------|--------------|-----------|
